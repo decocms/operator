@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- deco.sites_v1alpha1_decofile.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

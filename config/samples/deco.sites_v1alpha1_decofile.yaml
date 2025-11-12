@@ -1,0 +1,28 @@
+apiVersion: deco.sites/v1alpha1
+kind: Decofile
+metadata:
+  name: decofile-miess-01-main
+  namespace: sites-miess-01
+  labels:
+    app.kubernetes.io/name: decofile-operator
+    app.kubernetes.io/managed-by: operator
+spec:
+  source: inline
+  inline:
+    value:
+      config.json:
+        key: "value"
+        environment: "production"
+        apiUrl: "https://api.example.com"
+      data.json:
+        foo: "bar"
+        items:
+          - id: 1
+            name: "Item 1"
+          - id: 2
+            name: "Item 2"
+      settings.json:
+        theme: "dark"
+        features:
+          enableFeatureA: true
+          enableFeatureB: false

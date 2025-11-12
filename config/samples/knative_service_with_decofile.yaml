@@ -1,0 +1,25 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: miess-01-site
+  namespace: sites-miess-01
+  annotations:
+    # Use "default" to automatically resolve to decofile-{site}-main
+    # Site name is extracted from namespace by stripping "sites-" prefix
+    # Example: namespace "sites-miess-01" -> site "miess-01" -> decofile "decofile-miess-01-main"
+    deco.sites/decofile-inject: "default"
+    # Or specify the DecoFile name explicitly:
+    # deco.sites/decofile-inject: "decofile-miess-01-main"
+    
+    # Optional: customize the mount path (defaults to /app/deco/.deco/blocks)
+    # deco.sites/decofile-mount-path: "/custom/path"
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          image: nginx:latest
+          ports:
+            - containerPort: 8000
+              protocol: TCP
+
