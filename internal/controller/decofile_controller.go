@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -39,11 +40,12 @@ type DecofileReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=deco.sites.deco.sites,resources=decofiles,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=deco.sites.deco.sites,resources=decofiles/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=deco.sites.deco.sites,resources=decofiles/finalizers,verbs=update
+// +kubebuilder:rbac:groups=deco.sites,resources=decofiles,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=deco.sites,resources=decofiles/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=deco.sites,resources=decofiles/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -74,8 +76,8 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
-	// Retrieve configuration data from source
-	configMapData, err := source.Retrieve(ctx)
+	// Retrieve configuration data from source (single JSON string)
+	jsonContent, err := source.Retrieve(ctx)
 	if err != nil {
 		log.Error(err, "Failed to retrieve data from source")
 		return ctrl.Result{}, err
@@ -83,13 +85,15 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	sourceType := source.SourceType()
 
-	// Define the desired ConfigMap
+	// Define the desired ConfigMap with single decofile.json key
 	configMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      configMapName,
 			Namespace: decofile.Namespace,
 		},
-		Data: configMapData,
+		Data: map[string]string{
+			"decofile.json": jsonContent,
+		},
 	}
 
 	// Set Decofile instance as the owner of the ConfigMap
@@ -98,9 +102,12 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
-	// Check if the ConfigMap already exists
+	// Check if the ConfigMap already exists and detect changes
 	found := &corev1.ConfigMap{}
 	err = r.Get(ctx, client.ObjectKey{Name: configMapName, Namespace: decofile.Namespace}, found)
+
+	var dataChanged bool
+
 	if err != nil && errors.IsNotFound(err) {
 		log.Info("Creating a new ConfigMap", "ConfigMap.Namespace", configMap.Namespace, "ConfigMap.Name", configMap.Name)
 		err = r.Create(ctx, configMap)
@@ -108,28 +115,59 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			log.Error(err, "Failed to create new ConfigMap", "ConfigMap.Namespace", configMap.Namespace, "ConfigMap.Name", configMap.Name)
 			return ctrl.Result{}, err
 		}
+		dataChanged = false // New ConfigMap, no notification needed
 	} else if err != nil {
 		log.Error(err, "Failed to get ConfigMap")
 		return ctrl.Result{}, err
 	} else {
-		// ConfigMap exists, update it
-		found.Data = configMapData
-		err = r.Update(ctx, found)
-		if err != nil {
-			log.Error(err, "Failed to update ConfigMap", "ConfigMap.Namespace", found.Namespace, "ConfigMap.Name", found.Name)
-			return ctrl.Result{}, err
+		// ConfigMap exists, check if data changed
+		dataChanged = !reflect.DeepEqual(found.Data, configMap.Data)
+
+		if dataChanged {
+			log.Info("ConfigMap data changed, updating", "ConfigMap.Name", found.Name)
+			found.Data = configMap.Data
+			err = r.Update(ctx, found)
+			if err != nil {
+				log.Error(err, "Failed to update ConfigMap", "ConfigMap.Namespace", found.Namespace, "ConfigMap.Name", found.Name)
+				return ctrl.Result{}, err
+			}
+			log.Info("Updated existing ConfigMap", "ConfigMap.Namespace", found.Namespace, "ConfigMap.Name", found.Name)
+		} else {
+			log.V(1).Info("ConfigMap data unchanged, skipping update", "ConfigMap.Name", found.Name)
 		}
-		log.Info("Updated existing ConfigMap", "ConfigMap.Namespace", found.Namespace, "ConfigMap.Name", found.Name)
+	}
+
+	// Notify pods if ConfigMap data changed
+	if dataChanged {
+		log.Info("ConfigMap data changed, notifying pods")
+
+		notifier := NewNotifier(r.Client)
+		err = notifier.NotifyPodsForDecofile(ctx, decofile.Namespace, decofile.Name)
+		if err != nil {
+			log.Error(err, "Failed to notify pods", "decofile", decofile.Name)
+			return ctrl.Result{}, fmt.Errorf("failed to notify pods: %w", err)
+		}
+
+		log.Info("Successfully notified all pods")
+	}
+
+	// Re-fetch the Decofile to get the latest version before updating status
+	// This prevents conflicts if the object was modified during reconciliation
+	freshDecofile := &decositesv1alpha1.Decofile{}
+	err = r.Get(ctx, req.NamespacedName, freshDecofile)
+	if err != nil {
+		log.Error(err, "Failed to re-fetch Decofile for status update")
+		return ctrl.Result{}, err
 	}
 
 	// Update Decofile status
-	decofile.Status.ConfigMapName = configMapName
-	decofile.Status.LastUpdated = metav1.Time{Time: time.Now()}
-	decofile.Status.SourceType = sourceType
+	freshDecofile.Status.ConfigMapName = configMapName
+	freshDecofile.Status.LastUpdated = metav1.Time{Time: time.Now()}
+	freshDecofile.Status.SourceType = sourceType
 
 	// Store GitHub commit if using GitHub source
-	if decofile.Spec.Source == SourceTypeGitHub && decofile.Spec.GitHub != nil {
-		decofile.Status.GitHubCommit = decofile.Spec.GitHub.Commit
+	if freshDecofile.Spec.Source == SourceTypeGitHub && freshDecofile.Spec.GitHub != nil {
+		freshDecofile.Status.GitHubCommit = freshDecofile.Spec.GitHub.Commit
 	}
 
 	// Update the status condition
@@ -144,18 +182,18 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// Update or append condition
 	foundCondition := false
-	for i, cond := range decofile.Status.Conditions {
+	for i, cond := range freshDecofile.Status.Conditions {
 		if cond.Type == "Ready" {
-			decofile.Status.Conditions[i] = condition
+			freshDecofile.Status.Conditions[i] = condition
 			foundCondition = true
 			break
 		}
 	}
 	if !foundCondition {
-		decofile.Status.Conditions = append(decofile.Status.Conditions, condition)
+		freshDecofile.Status.Conditions = append(freshDecofile.Status.Conditions, condition)
 	}
 
-	err = r.Status().Update(ctx, decofile)
+	err = r.Status().Update(ctx, freshDecofile)
 	if err != nil {
 		log.Error(err, "Failed to update Decofile status")
 		return ctrl.Result{}, err

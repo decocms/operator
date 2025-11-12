@@ -104,16 +104,33 @@ jobs:
           echo "Deploying image: $IMAGE_TAG"
           make deploy IMG=$IMAGE_TAG
 
-      - name: Wait for deployment
+      - name: Wait for initial deployment
         run: |
-          kubectl rollout status deployment/decofile-operator-controller-manager \
-            -n decofile-operator-system \
+          kubectl rollout status deployment/operator-controller-manager \
+            -n operator-system \
+            --timeout=5m
+
+      - name: Set GITHUB_TOKEN environment variable
+        if: ${{ secrets.GH_TOKEN != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          kubectl set env deployment/operator-controller-manager \
+            GITHUB_TOKEN="${GH_TOKEN}" \
+            -n operator-system
+          echo "✓ GITHUB_TOKEN environment variable set"
+
+      - name: Wait for deployment with env var
+        run: |
+          kubectl rollout status deployment/operator-controller-manager \
+            -n operator-system \
             --timeout=5m
 
       - name: Verify deployment
         run: |
-          kubectl get pods -n decofile-operator-system
-          kubectl get crd decofiles.deco.sites.deco.sites
+          kubectl get pods -n operator-system
+          kubectl get crd decofiles.deco.sites
+          kubectl get decofiles -A
 
       - name: Cleanup kubeconfig
         if: always()

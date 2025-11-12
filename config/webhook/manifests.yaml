@@ -10,12 +10,12 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-serving-knative-dev-serving-knative-dev-v1-service
+      path: /mutate-serving-knative-dev-v1-service
   failurePolicy: Fail
   name: mservice-v1.kb.io
   rules:
   - apiGroups:
-    - serving.knative.dev.serving.knative.dev
+    - serving.knative.dev
     apiVersions:
     - v1
     operations:
@@ -36,12 +36,12 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-serving-knative-dev-serving-knative-dev-v1-service
+      path: /validate-serving-knative-dev-v1-service
   failurePolicy: Fail
   name: vservice-v1.kb.io
   rules:
   - apiGroups:
-    - serving.knative.dev.serving.knative.dev
+    - serving.knative.dev
     apiVersions:
     - v1
     operations:

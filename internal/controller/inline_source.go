@@ -34,19 +34,25 @@ func NewInlineSource(config *decositesv1alpha1.InlineSource) *InlineSource {
 	return &InlineSource{config: config}
 }
 
-// Retrieve converts inline JSON values to string map
-func (s *InlineSource) Retrieve(ctx context.Context) (map[string]string, error) {
-	configMapData := make(map[string]string)
+// Retrieve converts inline JSON values to a single JSON string
+func (s *InlineSource) Retrieve(ctx context.Context) (string, error) {
+	// Build a map of filename to JSON content using RawMessage to avoid double-encoding
+	filesJSON := make(map[string]json.RawMessage)
 	for key, rawExt := range s.config.Value {
-		// Convert RawExtension to JSON string
-		jsonBytes, err := json.Marshal(rawExt.Raw)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal value for key %s: %w", key, err)
+		// RawExtension.Raw is already JSON bytes
+		if len(rawExt.Raw) == 0 {
+			return "", fmt.Errorf("empty value for key %s", key)
 		}
-		configMapData[key] = string(jsonBytes)
+		filesJSON[key] = json.RawMessage(rawExt.Raw)
 	}
 
-	return configMapData, nil
+	// Marshal to single JSON string
+	jsonBytes, err := json.Marshal(filesJSON)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal files to JSON: %w", err)
+	}
+
+	return string(jsonBytes), nil
 }
 
 // SourceType returns the source type identifier

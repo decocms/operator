@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.18.0
-  name: decofiles.deco.sites.deco.sites
+  name: decofiles.deco.sites
 spec:
-  group: deco.sites.deco.sites
+  group: deco.sites
   names:
     kind: Decofile
     listKind: DecofileList

@@ -1,0 +1,15 @@
+apiVersion: deco.sites/v1alpha1
+kind: Decofile
+metadata:
+  name: decofile-test-github
+  namespace: sites-test
+  labels: 
+    x-test: e2e
+spec:
+  source: github
+  github:
+    org: deco-sites
+    repo: storefront
+    path: .deco/blocks
+    commit: 5a42f62f83edfd40334186d9116a85668ba03716
+    # secret is omitted - will use GITHUB_TOKEN env var from operator

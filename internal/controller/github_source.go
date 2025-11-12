@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -46,8 +47,8 @@ func NewGitHubSource(k8sClient client.Client, config *decositesv1alpha1.GitHubSo
 	}
 }
 
-// Retrieve downloads files from GitHub and returns them as a string map
-func (s *GitHubSource) Retrieve(ctx context.Context) (map[string]string, error) {
+// Retrieve downloads files from GitHub and returns them as a single JSON string
+func (s *GitHubSource) Retrieve(ctx context.Context) (string, error) {
 	log := logf.FromContext(ctx)
 
 	var token string
@@ -61,20 +62,17 @@ func (s *GitHubSource) Retrieve(ctx context.Context) (map[string]string, error) 
 			Namespace: s.namespace,
 		}, secret)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get secret %s: %w", s.config.Secret, err)
+			return "", fmt.Errorf("failed to get secret %s: %w", s.config.Secret, err)
 		}
 
 		token = string(secret.Data["token"])
 		if token == "" {
-			return nil, fmt.Errorf("secret %s does not contain 'token' key", s.config.Secret)
+			return "", fmt.Errorf("secret %s does not contain 'token' key", s.config.Secret)
 		}
 		log.V(1).Info("Using GitHub token from secret", "secret", s.config.Secret)
 	} else {
 		// Fall back to environment variable
 		token = os.Getenv("GITHUB_TOKEN")
-		if token == "" {
-			return nil, fmt.Errorf("no secret specified and GITHUB_TOKEN environment variable is not set")
-		}
 		log.V(1).Info("Using GitHub token from GITHUB_TOKEN environment variable")
 	}
 
@@ -93,18 +91,26 @@ func (s *GitHubSource) Retrieve(ctx context.Context) (map[string]string, error) 
 		s.config.Path,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to download from github: %w", err)
+		return "", fmt.Errorf("failed to download from github: %w", err)
 	}
 
-	// Convert bytes to strings
-	configMapData := make(map[string]string)
+	// Store all files as a single JSON object to preserve original filenames
+	// (ConfigMap keys have strict character restrictions)
+	// Parse each file as JSON to avoid double-stringification
+	filesJSON := make(map[string]json.RawMessage)
 	for filename, content := range files {
-		configMapData[filename] = string(content)
+		filesJSON[filename] = json.RawMessage(content)
+	}
+
+	// Marshal to JSON (RawMessage prevents double-encoding)
+	jsonBytes, err := json.Marshal(filesJSON)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal files to JSON: %w", err)
 	}
 
 	log.Info("Successfully downloaded from GitHub", "files", len(files))
 
-	return configMapData, nil
+	return string(jsonBytes), nil
 }
 
 // SourceType returns the source type identifier

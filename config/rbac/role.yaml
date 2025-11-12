@@ -19,13 +19,14 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - pods
   - secrets
   verbs:
   - get
   - list
   - watch
 - apiGroups:
-  - deco.sites.deco.sites
+  - deco.sites
   resources:
   - decofiles
   verbs:
@@ -37,13 +38,13 @@ rules:
   - update
   - watch
 - apiGroups:
-  - deco.sites.deco.sites
+  - deco.sites
   resources:
   - decofiles/finalizers
   verbs:
   - update
 - apiGroups:
-  - deco.sites.deco.sites
+  - deco.sites
   resources:
   - decofiles/status
   verbs:

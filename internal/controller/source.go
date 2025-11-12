@@ -32,8 +32,9 @@ const (
 
 // DecofileSource is an interface for retrieving configuration data from different sources
 type DecofileSource interface {
-	// Retrieve fetches the configuration data and returns it as a map of filename to content
-	Retrieve(ctx context.Context) (map[string]string, error)
+	// Retrieve fetches the configuration data and returns it as a single JSON string
+	// The JSON contains all files in the format: {"filename.json": {...}, ...}
+	Retrieve(ctx context.Context) (string, error)
 	// SourceType returns the type of source (inline, github, etc.)
 	SourceType() string
 }

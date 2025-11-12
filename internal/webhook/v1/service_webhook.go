@@ -37,7 +37,7 @@ import (
 // log is for logging in this package.
 var servicelog = logf.Log.WithName("service-resource")
 
-// +kubebuilder:rbac:groups=deco.sites.deco.sites,resources=decofiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=deco.sites,resources=decofiles,verbs=get;list;watch
 
 // SetupServiceWebhookWithManager registers the webhook for Service in the manager.
 func SetupServiceWebhookWithManager(mgr ctrl.Manager) error {
@@ -49,7 +49,7 @@ func SetupServiceWebhookWithManager(mgr ctrl.Manager) error {
 
 // TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 
-// +kubebuilder:webhook:path=/mutate-serving-knative-dev-serving-knative-dev-v1-service,mutating=true,failurePolicy=fail,sideEffects=None,groups=serving.knative.dev.serving.knative.dev,resources=services,verbs=create;update,versions=v1,name=mservice-v1.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-serving-knative-dev-v1-service,mutating=true,failurePolicy=fail,sideEffects=None,groups=serving.knative.dev,resources=services,verbs=create;update,versions=v1,name=mservice-v1.kb.io,admissionReviewVersions=v1
 
 // ServiceCustomDefaulter struct is responsible for setting default values on the Service resource
 // when it is created or updated.
@@ -66,7 +66,7 @@ var _ webhook.CustomDefaulter = &ServiceCustomDefaulter{}
 func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object) error {
 	service, ok := obj.(*servingknativedevv1.Service)
 	if !ok {
-		return fmt.Errorf("expected a Service object but got %T", obj)
+		return nil // do nothing
 	}
 	servicelog.Info("Mutating Service", "name", service.GetName())
 
@@ -114,11 +114,14 @@ func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object
 		return fmt.Errorf("decofile %s does not have a ConfigMap created yet", decofileName)
 	}
 
-	// Get mount path from annotation or use default
-	mountPath := "/app/deco/.deco/blocks"
+	// Get mount path from annotation or use default directory
+	mountDir := "/app/decofile"
 	if customPath, exists := service.Annotations["deco.sites/decofile-mount-path"]; exists {
-		mountPath = customPath
+		mountDir = customPath
 	}
+
+	// Create DECO_RELEASE environment variable value pointing to the file within the directory
+	decoReleaseValue := fmt.Sprintf("file://%s/decofile.json", mountDir)
 
 	// Ensure volumes array exists
 	if service.Spec.Template.Spec.Volumes == nil {
@@ -130,17 +133,11 @@ func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object
 	volumeExists := false
 	for i, vol := range service.Spec.Template.Spec.Volumes {
 		if vol.Name == volumeName {
-			// Update existing volume
+			// Update existing volume - use ConfigMap directly for file mounting
 			service.Spec.Template.Spec.PodSpec.Volumes[i].VolumeSource = corev1.VolumeSource{
-				Projected: &corev1.ProjectedVolumeSource{
-					Sources: []corev1.VolumeProjection{
-						{
-							ConfigMap: &corev1.ConfigMapProjection{
-								LocalObjectReference: corev1.LocalObjectReference{
-									Name: decofile.Status.ConfigMapName,
-								},
-							},
-						},
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: decofile.Status.ConfigMapName,
 					},
 				},
 			}
@@ -150,19 +147,13 @@ func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object
 	}
 
 	if !volumeExists {
-		// Add new volume
+		// Add new volume - use ConfigMap directly for file mounting
 		service.Spec.Template.Spec.Volumes = append(service.Spec.Template.Spec.Volumes, corev1.Volume{
 			Name: volumeName,
 			VolumeSource: corev1.VolumeSource{
-				Projected: &corev1.ProjectedVolumeSource{
-					Sources: []corev1.VolumeProjection{
-						{
-							ConfigMap: &corev1.ConfigMapProjection{
-								LocalObjectReference: corev1.LocalObjectReference{
-									Name: decofile.Status.ConfigMapName,
-								},
-							},
-						},
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: decofile.Status.ConfigMapName,
 					},
 				},
 			},
@@ -183,12 +174,13 @@ func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object
 		}
 	}
 
-	// Add volumeMount
+	// Add volumeMount as directory (no subPath so file updates propagate)
 	mountExists := false
 	for i, mount := range service.Spec.Template.Spec.PodSpec.Containers[targetContainerIdx].VolumeMounts {
 		if mount.Name == volumeName {
 			// Update existing mount
-			service.Spec.Template.Spec.PodSpec.Containers[targetContainerIdx].VolumeMounts[i].MountPath = mountPath
+			service.Spec.Template.Spec.PodSpec.Containers[targetContainerIdx].VolumeMounts[i].MountPath = mountDir
+			service.Spec.Template.Spec.PodSpec.Containers[targetContainerIdx].VolumeMounts[i].SubPath = ""
 			mountExists = true
 			break
 		}
@@ -199,20 +191,48 @@ func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object
 			service.Spec.Template.Spec.PodSpec.Containers[targetContainerIdx].VolumeMounts,
 			corev1.VolumeMount{
 				Name:      volumeName,
-				MountPath: mountPath,
+				MountPath: mountDir,
 				ReadOnly:  true,
 			},
 		)
 	}
 
+	// Add DECO_RELEASE environment variable
+	envExists := false
+	for i, env := range service.Spec.Template.Spec.PodSpec.Containers[targetContainerIdx].Env {
+		if env.Name == "DECO_RELEASE" {
+			// Update existing env var
+			service.Spec.Template.Spec.PodSpec.Containers[targetContainerIdx].Env[i].Value = decoReleaseValue
+			envExists = true
+			break
+		}
+	}
+
+	if !envExists {
+		service.Spec.Template.Spec.PodSpec.Containers[targetContainerIdx].Env = append(
+			service.Spec.Template.Spec.PodSpec.Containers[targetContainerIdx].Env,
+			corev1.EnvVar{
+				Name:  "DECO_RELEASE",
+				Value: decoReleaseValue,
+			},
+		)
+	}
+
+	// Add label to pod template for Decofile tracking
+	if service.Spec.Template.Labels == nil {
+		service.Spec.Template.Labels = make(map[string]string)
+	}
+	service.Spec.Template.Labels["deco.sites/decofile"] = decofileName
+
 	servicelog.Info("Successfully injected Decofile into Service", "service", service.Name, "decofile", decofileName, "configmap", decofile.Status.ConfigMapName)
+
 	return nil
 }
 
 // TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
 // NOTE: The 'path' attribute must follow a specific pattern and should not be modified directly here.
 // Modifying the path for an invalid path can cause API server errors; failing to locate the webhook.
-// +kubebuilder:webhook:path=/validate-serving-knative-dev-serving-knative-dev-v1-service,mutating=false,failurePolicy=fail,sideEffects=None,groups=serving.knative.dev.serving.knative.dev,resources=services,verbs=create;update,versions=v1,name=vservice-v1.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-serving-knative-dev-v1-service,mutating=false,failurePolicy=fail,sideEffects=None,groups=serving.knative.dev,resources=services,verbs=create;update,versions=v1,name=vservice-v1.kb.io,admissionReviewVersions=v1
 
 // ServiceCustomValidator struct is responsible for validating the Service resource
 // when it is created, updated, or deleted.

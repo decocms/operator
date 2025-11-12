@@ -141,6 +141,50 @@ test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expect
 cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
 
+.PHONY: kind-setup
+kind-setup: ## Set up Kind cluster with cert-manager and Knative (cluster must already exist)
+	@bash hack/setup-kind.sh
+
+.PHONY: kind-load
+kind-load: docker-build ## Build and load operator image into Kind cluster
+	@echo "Loading image $(IMG) into Kind cluster..."
+	@$(KIND) load docker-image $(IMG) --name $(shell kubectl config current-context | sed 's/kind-//')
+	@echo "✓ Image loaded successfully"
+
+.PHONY: kind-deploy
+kind-deploy: kind-load deploy ## Build, load image into Kind, and deploy operator
+	@echo "✓ Operator deployed to Kind cluster"
+
+.PHONY: kind-build-test-app
+kind-build-test-app: ## Build test application Docker image
+	@echo "Building test application..."
+	@docker build -t test-decofile-app:dev test/kind/app/
+	@docker tag test-decofile-app:dev localhost:5000/test-decofile-app:dev
+	@echo "✓ Test app built: localhost:5000/test-decofile-app:dev"
+
+.PHONY: kind-load-test-app
+kind-load-test-app: kind-build-test-app ## Build and load test app into Kind
+	@echo "Loading test app into Kind..."
+	@$(KIND) load docker-image localhost:5000/test-decofile-app:dev --name $(shell kubectl config current-context | sed 's/kind-//')
+	@echo "✓ Test app loaded into Kind"
+
+.PHONY: kind-test
+kind-test: kind-deploy kind-load-test-app ## Build test app, deploy operator, and run E2E tests
+	@echo "Waiting for operator to be ready..."
+	@kubectl wait --for=condition=Available --timeout=120s deployment/operator-controller-manager -n operator-system || true
+	@sleep 5
+	@bash hack/test-kind-e2e.sh
+
+.PHONY: kind-logs
+kind-logs: ## Show operator logs from Kind cluster
+	@kubectl logs -n operator-system -l control-plane=controller-manager --tail=100 -f
+
+.PHONY: kind-clean
+kind-clean: ## Remove operator from Kind cluster
+	@echo "Undeploying operator from Kind..."
+	@$(MAKE) undeploy || true
+	@echo "✓ Operator removed from Kind cluster"
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	$(GOLANGCI_LINT) run
@@ -196,6 +240,10 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 	mkdir -p dist
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default > dist/install.yaml
+
+##@ Kind Testing
+
+# Kind cluster testing targets are defined above in the test section
 
 ##@ Deployment
 
