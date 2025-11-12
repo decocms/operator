@@ -66,9 +66,10 @@ type GitHubSource struct {
 	// +kubebuilder:validation:Required
 	Path string `json:"path"`
 
-	// Secret is the name of the Kubernetes secret containing GitHub credentials
-	// +kubebuilder:validation:Required
-	Secret string `json:"secret"`
+	// Secret is the name of the Kubernetes secret containing GitHub credentials.
+	// If omitted, the GITHUB_TOKEN environment variable will be used.
+	// +optional
+	Secret string `json:"secret,omitempty"`
 }
 
 // DecofileStatus defines the observed state of Decofile.

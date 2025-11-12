@@ -55,15 +55,15 @@ spec:
                     description: Repo is the repository name
                     type: string
                   secret:
-                    description: Secret is the name of the Kubernetes secret containing
-                      GitHub credentials
+                    description: |-
+                      Secret is the name of the Kubernetes secret containing GitHub credentials.
+                      If omitted, the GITHUB_TOKEN environment variable will be used.
                     type: string
                 required:
                 - commit
                 - org
                 - path
                 - repo
-                - secret
                 type: object
               inline:
                 description: Inline contains direct JSON values (used when source=inline)

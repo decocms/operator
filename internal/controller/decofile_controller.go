@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -26,19 +25,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
-	"github.com/deco-sites/decofile-operator/internal/github"
-)
-
-const (
-	sourceTypeInline = "inline"
-	sourceTypeGitHub = "github"
 )
 
 // DecofileReconciler reconciles a Decofile object
@@ -75,88 +67,21 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// Define the ConfigMap name
 	configMapName := fmt.Sprintf("decofile-%s", decofile.Name)
 
-	// Prepare ConfigMap data based on source type
-	var configMapData map[string]string
-	var sourceType string
-
-	switch decofile.Spec.Source {
-	case sourceTypeInline:
-		if decofile.Spec.Inline == nil {
-			err := fmt.Errorf("inline source specified but no inline data provided")
-			log.Error(err, "Invalid Decofile spec")
-			return ctrl.Result{}, err
-		}
-
-		configMapData = make(map[string]string)
-		for key, rawExt := range decofile.Spec.Inline.Value {
-			// Convert RawExtension to JSON string
-			jsonBytes, err := json.Marshal(rawExt.Raw)
-			if err != nil {
-				log.Error(err, "Failed to marshal value for key", "key", key)
-				return ctrl.Result{}, err
-			}
-			configMapData[key] = string(jsonBytes)
-		}
-		sourceType = sourceTypeInline
-
-	case sourceTypeGitHub:
-		if decofile.Spec.GitHub == nil {
-			err := fmt.Errorf("github source specified but no github config provided")
-			log.Error(err, "Invalid Decofile spec")
-			return ctrl.Result{}, err
-		}
-
-		// Fetch GitHub token from secret
-		secret := &corev1.Secret{}
-		err := r.Get(ctx, types.NamespacedName{
-			Name:      decofile.Spec.GitHub.Secret,
-			Namespace: decofile.Namespace,
-		}, secret)
-		if err != nil {
-			log.Error(err, "Failed to get GitHub secret", "secret", decofile.Spec.GitHub.Secret)
-			return ctrl.Result{}, fmt.Errorf("failed to get secret %s: %w", decofile.Spec.GitHub.Secret, err)
-		}
-
-		token := string(secret.Data["token"])
-		if token == "" {
-			err := fmt.Errorf("secret %s does not contain 'token' key", decofile.Spec.GitHub.Secret)
-			log.Error(err, "Invalid secret")
-			return ctrl.Result{}, err
-		}
-
-		// Download and extract from GitHub
-		log.Info("Downloading from GitHub",
-			"org", decofile.Spec.GitHub.Org,
-			"repo", decofile.Spec.GitHub.Repo,
-			"commit", decofile.Spec.GitHub.Commit,
-			"path", decofile.Spec.GitHub.Path)
-
-		downloader := &github.Downloader{Token: token}
-		files, err := downloader.DownloadAndExtract(
-			decofile.Spec.GitHub.Org,
-			decofile.Spec.GitHub.Repo,
-			decofile.Spec.GitHub.Commit,
-			decofile.Spec.GitHub.Path,
-		)
-		if err != nil {
-			log.Error(err, "Failed to download from GitHub")
-			return ctrl.Result{}, fmt.Errorf("failed to download from github: %w", err)
-		}
-
-		// Convert bytes to strings
-		configMapData = make(map[string]string)
-		for filename, content := range files {
-			configMapData[filename] = string(content)
-		}
-		sourceType = sourceTypeGitHub
-
-		log.Info("Successfully downloaded from GitHub", "files", len(files))
-
-	default:
-		err := fmt.Errorf("unknown source type: %s (must be '%s' or '%s')", decofile.Spec.Source, sourceTypeInline, sourceTypeGitHub)
-		log.Error(err, "Invalid source type")
+	// Get the appropriate source implementation
+	source, err := NewSource(r.Client, decofile)
+	if err != nil {
+		log.Error(err, "Failed to create source")
 		return ctrl.Result{}, err
 	}
+
+	// Retrieve configuration data from source
+	configMapData, err := source.Retrieve(ctx)
+	if err != nil {
+		log.Error(err, "Failed to retrieve data from source")
+		return ctrl.Result{}, err
+	}
+
+	sourceType := source.SourceType()
 
 	// Define the desired ConfigMap
 	configMap := &corev1.ConfigMap{
@@ -175,7 +100,7 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// Check if the ConfigMap already exists
 	found := &corev1.ConfigMap{}
-	err = r.Get(ctx, types.NamespacedName{Name: configMapName, Namespace: decofile.Namespace}, found)
+	err = r.Get(ctx, client.ObjectKey{Name: configMapName, Namespace: decofile.Namespace}, found)
 	if err != nil && errors.IsNotFound(err) {
 		log.Info("Creating a new ConfigMap", "ConfigMap.Namespace", configMap.Namespace, "ConfigMap.Name", configMap.Name)
 		err = r.Create(ctx, configMap)
@@ -203,7 +128,7 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	decofile.Status.SourceType = sourceType
 
 	// Store GitHub commit if using GitHub source
-	if decofile.Spec.Source == sourceTypeGitHub && decofile.Spec.GitHub != nil {
+	if decofile.Spec.Source == SourceTypeGitHub && decofile.Spec.GitHub != nil {
 		decofile.Status.GitHubCommit = decofile.Spec.GitHub.Commit
 	}
 
