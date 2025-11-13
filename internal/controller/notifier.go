@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	reloadEndpoint    = "/deco/.decofile/reload"
+	reloadEndpoint    = "/.decofile/reload"
 	reloadTimeout     = 90 * time.Second // Longer timeout to account for delay parameter
 	maxRetries        = 5
 	initialBackoff    = 1 * time.Second

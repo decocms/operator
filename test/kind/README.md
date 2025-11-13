@@ -20,7 +20,7 @@ test/kind/
 
 The test app is a simple Deno HTTP server that:
 - Responds to `/health` for health checks
-- Responds to `/deco/.decofile/reload` to read and log ConfigMap files
+- Responds to `/.decofile/reload` to read and log ConfigMap files
 - Logs all file contents from `/app/deco/.deco/blocks`
 
 ## Running Tests

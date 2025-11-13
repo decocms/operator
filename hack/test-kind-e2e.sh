@@ -180,7 +180,7 @@ function test_reload_endpoint() {
     
     # Call reload endpoint from within cluster
     RESPONSE=$(kubectl run curl-test --image=curlimages/curl:latest --rm -i --restart=Never -n ${TEST_NAMESPACE} -- \
-        curl -s "http://${POD_IP}:8080/deco/.decofile/reload" 2>/dev/null || echo "")
+        curl -s "http://${POD_IP}:8080/.decofile/reload" 2>/dev/null || echo "")
     
     if echo "$RESPONSE" | grep -q "Reloaded"; then
         print_success "Reload endpoint responded successfully"

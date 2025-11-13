@@ -296,7 +296,7 @@ Manages the lifecycle of Decofile custom resources:
 
 **Change Notifications:**
 - Discovers pods via `deco.sites/decofile` label
-- Calls `/deco/.decofile/reload?delay=60000` on each pod
+- Calls `/.decofile/reload?delay=60000` on each pod
 - Waits for pods to confirm reload before completing reconciliation
 
 ### 2. Mutating Webhook

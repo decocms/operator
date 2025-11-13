@@ -68,7 +68,7 @@ function handleRoot(): Response {
     "Decofile Test App\n" +
     "Endpoints:\n" +
     "  GET /health - Health check\n" +
-    "  GET /deco/.decofile/reload?delay=<ms> - Reload configuration\n",
+    "  GET /.decofile/reload?delay=<ms> - Reload configuration\n",
     { 
       status: 200,
       headers: { "Content-Type": "text/plain" }
@@ -94,7 +94,7 @@ Deno.serve({
     return handleHealth();
   }
   
-  if (pathname === "/deco/.decofile/reload") {
+  if (pathname === "/.decofile/reload") {
     // Parse delay query parameter
     const delayParam = url.searchParams.get("delay");
     const delayMs = delayParam ? parseInt(delayParam, 10) : undefined;
