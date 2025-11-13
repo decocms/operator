@@ -1,0 +1,44 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: test
+  namespace: sites-test
+  labels:
+    app: test
+    test: e2e
+  annotations:
+    # Request injection of the "default" decofile
+    # Will resolve to: decofile-test-main (based on namespace sites-test)
+    deco.sites/decofile-inject: "default"
+    # Skip digest resolution for local images in Kind
+    kn-cli.knative.dev/image-digest: ""
+spec:
+  template:
+    metadata:
+      annotations:
+        # Ensure pods are recreated on updates for testing
+        autoscaling.knative.dev/min-scale: "1"
+        autoscaling.knative.dev/initial-scale: "1"
+        # Disable image digest resolution for Kind local images
+        client.knative.dev/user-image: "test-decofile-app:dev"
+    spec:
+      containers:
+        - name: app
+          image: localhost:5000/test-decofile-app:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+

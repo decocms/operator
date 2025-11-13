@@ -1,0 +1,87 @@
+# Default values for decofile-operator
+
+# Image configuration
+image:
+  repository: ghcr.io/decocms/operator
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Number of replicas
+replicaCount: 1
+
+# GitHub token for private repositories (optional)
+# If not set, operator will only work with public repos
+github:
+  token: ""
+
+# Resource limits and requests
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+# cert-manager configuration
+certManager:
+  enabled: true
+
+# Webhook configuration
+webhook:
+  enabled: true
+
+# Health probe configuration
+healthProbe:
+  bindAddress: ":8081"
+  livenessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 20
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+# Metrics configuration
+metrics:
+  enabled: true
+  port: 8443
+
+# Leader election
+leaderElection:
+  enabled: true
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - "ALL"
+
+# Service account
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Pod annotations
+podAnnotations: {}
+
+# Pod labels
+podLabels: {}
+
+# Name overrides
+nameOverride: ""
+fullnameOverride: ""
+

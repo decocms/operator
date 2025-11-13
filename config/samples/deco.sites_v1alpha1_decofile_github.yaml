@@ -1,0 +1,17 @@
+apiVersion: deco.sites/v1alpha1
+kind: Decofile
+metadata:
+  name: decofile-mysite-main
+  namespace: sites-mysite
+  labels:
+    app.kubernetes.io/name: decofile-operator
+    app.kubernetes.io/managed-by: operator
+spec:
+  source: github
+  github:
+    org: deco-sites
+    repo: mysite
+    commit: main
+    path: .deco/blocks
+    secret: github-token
+
