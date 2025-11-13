@@ -41,22 +41,36 @@ The Deco CMS operator manages **Decofile** custom resources, which represent con
 
 ### Installation with Helm
 
+**From GitHub Release (Recommended)**:
+
+```bash
+# Install from release
+helm install deco \
+  https://github.com/decocms/operator/releases/download/v0.1.0/deco-operator-0.1.0.tgz \
+  --namespace operator-system \
+  --create-namespace \
+  --wait
+
+# With GitHub token for private repos
+helm install deco \
+  https://github.com/decocms/operator/releases/download/v0.1.0/deco-operator-0.1.0.tgz \
+  --namespace operator-system \
+  --create-namespace \
+  --set github.token=ghp_your_token \
+  --wait
+```
+
+**From Source**:
+
 ```bash
 # Clone the repository
 git clone https://github.com/decocms/operator.git
 cd operator
 
 # Install with Helm
-helm upgrade --install deco-operator chart/ \
+helm install deco chart/ \
   --namespace operator-system \
   --create-namespace \
-  --wait
-
-# With GitHub token for private repos
-helm upgrade --install deco-operator chart/ \
-  --namespace operator-system \
-  --create-namespace \
-  --set github.token=ghp_your_token \
   --wait
 ```
 

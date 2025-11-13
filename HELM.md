@@ -11,25 +11,34 @@ The Decofile Operator can be installed using Helm for easy configuration and upg
 
 ## Installation
 
-### Option 1: Install from GitHub (Recommended)
+### Option 1: Install from GitHub Release (Recommended)
 
 ```bash
-# Install directly from GitHub repository
-helm install decofile-operator \
-  https://github.com/decocms/operator/releases/download/v0.1.0/decofile-operator-0.1.0.tgz \
+# Install from a specific release
+helm install deco \
+  https://github.com/decocms/operator/releases/download/v0.1.0/deco-operator-0.1.0.tgz \
   --namespace operator-system \
-  --create-namespace
+  --create-namespace \
+  --wait
+
+# Always use the latest release
+helm install deco \
+  https://github.com/decocms/operator/releases/latest/download/deco-operator-0.1.0.tgz \
+  --namespace operator-system \
+  --create-namespace \
+  --wait
 ```
 
-Or from the main branch:
+### Option 2: Install from Source
 
 ```bash
 # Clone and install
 git clone https://github.com/decocms/operator.git
 cd operator
-helm install decofile-operator chart/ \
+helm install deco chart/ \
   --namespace operator-system \
-  --create-namespace
+  --create-namespace \
+  --wait
 ```
 
 ### Option 2: Install from Local
