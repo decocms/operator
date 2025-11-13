@@ -156,6 +156,16 @@ func addConditionals(content, kind string) string {
 	}
 
 	if strings.Contains(kind, "webhook") {
+		// Add cert-manager CA injection annotation for webhook configurations
+		if strings.Contains(content, "MutatingWebhookConfiguration") || strings.Contains(content, "ValidatingWebhookConfiguration") {
+			// Add annotation after metadata: labels:
+			re := regexp.MustCompile(`(?m)(metadata:\s+(?:annotations:.*?\s+)?name:)`)
+			if !strings.Contains(content, "annotations:") {
+				content = re.ReplaceAllString(content, "metadata:\n  annotations:\n    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ .Release.Name }}-serving-cert\n  name:")
+			} else {
+				content = strings.ReplaceAll(content, "metadata:\n  annotations:", "metadata:\n  annotations:\n    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ .Release.Name }}-serving-cert")
+			}
+		}
 		return "{{- if .Values.webhook.enabled }}\n" + content + "\n{{- end }}"
 	}
 
