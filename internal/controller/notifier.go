@@ -93,14 +93,20 @@ func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, decofil
 			continue
 		}
 
-		err := n.notifyPodWithRetry(ctx, pod.Name, pod.Status.PodIP)
+		// Get port from pod's first container (usually the app container)
+		port := int32(8000) // default
+		if len(pod.Spec.Containers) > 0 && len(pod.Spec.Containers[0].Ports) > 0 {
+			port = pod.Spec.Containers[0].Ports[0].ContainerPort
+		}
+
+		err := n.notifyPodWithRetry(ctx, pod.Name, pod.Status.PodIP, port)
 		if err != nil {
-			errMsg := fmt.Sprintf("failed to notify pod %s (IP: %s): %v", pod.Name, pod.Status.PodIP, err)
-			log.Error(err, "Failed to notify pod after retries", "pod", pod.Name, "ip", pod.Status.PodIP)
+			errMsg := fmt.Sprintf("failed to notify pod %s (IP: %s:%d): %v", pod.Name, pod.Status.PodIP, port, err)
+			log.Error(err, "Failed to notify pod after retries", "pod", pod.Name, "ip", pod.Status.PodIP, "port", port)
 			allErrors = append(allErrors, errMsg)
 			failCount++
 		} else {
-			log.Info("Successfully notified pod", "pod", pod.Name, "ip", pod.Status.PodIP)
+			log.Info("Successfully notified pod", "pod", pod.Name, "ip", pod.Status.PodIP, "port", port)
 			successCount++
 		}
 	}
@@ -115,10 +121,10 @@ func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, decofil
 }
 
 // notifyPodWithRetry attempts to notify a single pod with exponential backoff retry
-func (n *Notifier) notifyPodWithRetry(ctx context.Context, podName, podIP string) error {
+func (n *Notifier) notifyPodWithRetry(ctx context.Context, podName, podIP string, port int32) error {
 	log := logf.FromContext(ctx)
 	// Add delay parameter to give kubelet time to sync ConfigMap to pod
-	url := fmt.Sprintf("http://%s:8080%s?delay=%d", podIP, reloadEndpoint, configSyncDelayMS)
+	url := fmt.Sprintf("http://%s:%d%s?delay=%d", podIP, port, reloadEndpoint, configSyncDelayMS)
 
 	backoff := initialBackoff
 
