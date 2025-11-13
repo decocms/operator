@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -105,15 +106,18 @@ func (s *GitHubSource) Retrieve(ctx context.Context) (string, error) {
 		filesJSON[cleanFilename] = json.RawMessage(content)
 	}
 
-	// Marshal to JSON (RawMessage prevents double-encoding)
-	jsonBytes, err := json.Marshal(filesJSON)
+	// Marshal to JSON without HTML escaping (preserves &, <, > characters)
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	err = encoder.Encode(filesJSON)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal files to JSON: %w", err)
 	}
 
 	log.Info("Successfully downloaded from GitHub", "files", len(files))
 
-	return string(jsonBytes), nil
+	return strings.TrimSpace(buf.String()), nil
 }
 
 // SourceType returns the source type identifier

@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -49,13 +50,16 @@ func (s *InlineSource) Retrieve(ctx context.Context) (string, error) {
 		filesJSON[cleanKey] = json.RawMessage(rawExt.Raw)
 	}
 
-	// Marshal to single JSON string
-	jsonBytes, err := json.Marshal(filesJSON)
+	// Marshal to single JSON string without HTML escaping
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	err := encoder.Encode(filesJSON)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal files to JSON: %w", err)
 	}
 
-	return string(jsonBytes), nil
+	return strings.TrimSpace(buf.String()), nil
 }
 
 // SourceType returns the source type identifier
