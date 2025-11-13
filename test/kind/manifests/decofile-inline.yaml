@@ -15,5 +15,5 @@ spec:
         feature: "inline-source"
         timestamp: "initial"
       data.json:
-        message: "Hello from inline 555"
+        message: "Hello from inline 666"
         version: "1.0"

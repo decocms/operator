@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -99,7 +100,9 @@ func (s *GitHubSource) Retrieve(ctx context.Context) (string, error) {
 	// Parse each file as JSON to avoid double-stringification
 	filesJSON := make(map[string]json.RawMessage)
 	for filename, content := range files {
-		filesJSON[filename] = json.RawMessage(content)
+		// Strip .json extension from filename
+		cleanFilename := strings.TrimSuffix(filename, ".json")
+		filesJSON[cleanFilename] = json.RawMessage(content)
 	}
 
 	// Marshal to JSON (RawMessage prevents double-encoding)

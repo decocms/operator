@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
 )
@@ -43,7 +44,9 @@ func (s *InlineSource) Retrieve(ctx context.Context) (string, error) {
 		if len(rawExt.Raw) == 0 {
 			return "", fmt.Errorf("empty value for key %s", key)
 		}
-		filesJSON[key] = json.RawMessage(rawExt.Raw)
+		// Strip .json extension from key
+		cleanKey := strings.TrimSuffix(key, ".json")
+		filesJSON[cleanKey] = json.RawMessage(rawExt.Raw)
 	}
 
 	// Marshal to single JSON string

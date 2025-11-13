@@ -34,7 +34,7 @@ const (
 	maxRetries        = 5
 	initialBackoff    = 1 * time.Second
 	decofileLabel     = "deco.sites/decofile"
-	configSyncDelayMS = 60000 // 60 seconds for kubelet to sync ConfigMap to pods
+	configSyncDelayMS = 70000 // 70 seconds for kubelet to sync ConfigMap to pods
 )
 
 // Notifier handles notifying pods about ConfigMap changes

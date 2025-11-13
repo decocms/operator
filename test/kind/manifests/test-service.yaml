@@ -1,3 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sites-test
+---
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
@@ -9,7 +14,7 @@ metadata:
   annotations:
     # Request injection of the "default" decofile
     # Will resolve to: decofile-test-main (based on namespace sites-test)
-    deco.sites/decofile-inject: "default"
+    deco.sites/decofile-inject: "decofile-test-github"
     # Skip digest resolution for local images in Kind
     kn-cli.knative.dev/image-digest: ""
 spec:
