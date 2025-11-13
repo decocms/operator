@@ -99,6 +99,7 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+	$(MAKE) helm
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -240,6 +241,47 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 	mkdir -p dist
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default > dist/install.yaml
+
+##@ Helm
+
+.PHONY: helm
+helm: manifests kustomize ## Generate Helm chart from Kustomize manifests
+	@bash hack/generate-helm.sh
+
+.PHONY: helm-lint
+helm-lint: helm ## Lint Helm chart
+	@helm lint chart/
+
+.PHONY: helm-template
+helm-template: helm ## Template Helm chart (dry-run)
+	@helm template decofile-operator chart/ --namespace operator-system
+
+.PHONY: helm-package
+helm-package: helm ## Package Helm chart
+	@mkdir -p dist
+	@helm package chart/ -d dist/
+	@echo "✓ Helm chart packaged in dist/"
+
+.PHONY: helm-install
+helm-install: helm ## Install Helm chart to cluster
+	@helm upgrade --install decofile-operator chart/ \
+		--namespace operator-system --create-namespace \
+		--wait --timeout=5m
+
+.PHONY: helm-uninstall
+helm-uninstall: ## Uninstall Helm chart from cluster
+	@helm uninstall decofile-operator --namespace operator-system
+
+.PHONY: helm-verify
+helm-verify: ## Verify Helm chart is up to date
+	@echo "Verifying Helm chart is up to date..."
+	@$(MAKE) helm
+	@if [ -n "$$(git status --porcelain chart/)" ]; then \
+		echo "❌ Error: Helm chart is out of date. Please run 'make helm' and commit the changes."; \
+		git status --porcelain chart/; \
+		exit 1; \
+	fi
+	@echo "✓ Helm chart is up to date"
 
 ##@ Kind Testing
 
