@@ -4,7 +4,7 @@ metadata:
   labels:
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/name: operator
-  name: {{ include "operator.fullname" . }}-webhook-service
+  name: {{ .Release.Name }}-webhook-service
   namespace: {{ .Release.Namespace }}
 spec:
   ports:

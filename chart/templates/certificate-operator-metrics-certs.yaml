@@ -5,7 +5,7 @@ metadata:
   labels:
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/name: operator
-  name: {{ include "operator.fullname" . }}-metrics-certs
+  name: {{ .Release.Name }}-metrics-certs
   namespace: {{ .Release.Namespace }}
 spec:
   dnsNames:
@@ -13,6 +13,6 @@ spec:
   - SERVICE_NAME.SERVICE_NAMESPACE.svc.cluster.local
   issuerRef:
     kind: Issuer
-    name: operator-selfsigned-issuer
+    name: {{ .Release.Name }}-selfsigned-issuer
   secretName: metrics-server-cert
 {{- end }}

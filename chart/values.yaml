@@ -1,4 +1,5 @@
-# Default values for decofile-operator
+# Default values for deco-operator
+# Manages Decofile resources for Deco CMS applications
 
 # Image configuration
 image:

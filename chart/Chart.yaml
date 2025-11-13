@@ -1,6 +1,6 @@
 apiVersion: v2
-name: decofile-operator
-description: A Kubernetes operator that manages Decofile custom resources and automatically injects ConfigMaps into Knative Services
+name: deco-operator
+description: Kubernetes operator for Deco CMS that manages Decofile resources and automatically injects configuration into Knative Services
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
@@ -9,11 +9,14 @@ keywords:
   - kubernetes
   - knative
   - decofile
-  - deco.cx
+  - deco
+  - deco-cms
+  - configuration-management
 home: https://github.com/decocms/operator
 sources:
   - https://github.com/decocms/operator
 maintainers:
   - name: Deco CMS Team
     url: https://github.com/decocms
+icon: https://deco.cx/favicon.ico
 

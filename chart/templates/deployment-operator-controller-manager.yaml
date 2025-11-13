@@ -5,7 +5,7 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/name: operator
     control-plane: controller-manager
-  name: {{ include "operator.fullname" . }}-controller-manager
+  name: {{ .Release.Name }}-controller-manager
   namespace: {{ .Release.Namespace }}
 spec:
   replicas: 1
@@ -30,7 +30,12 @@ spec:
         - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
         command:
         - /manager
-        image: decofile-operator:dev
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        {{- if .Values.github.token }}
+        env:
+        - name: GITHUB_TOKEN
+          value: {{ .Values.github.token | quote }}
+        {{- end }}
         livenessProbe:
           httpGet:
             path: /healthz
@@ -71,7 +76,7 @@ spec:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
-      serviceAccountName: {{ include "operator.serviceAccountName" . }}
+      serviceAccountName: {{ .Release.Name }}-controller-manager
       terminationGracePeriodSeconds: 10
       volumes:
       - name: metrics-certs

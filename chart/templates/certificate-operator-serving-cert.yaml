@@ -5,14 +5,14 @@ metadata:
   labels:
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/name: operator
-  name: {{ include "operator.fullname" . }}-serving-cert
+  name: {{ .Release.Name }}-serving-cert
   namespace: {{ .Release.Namespace }}
 spec:
   dnsNames:
-  - operator-webhook-service.operator-system.svc
-  - operator-webhook-service.operator-system.svc.cluster.local
+  - {{ .Release.Name }}-webhook-service.{{ .Release.Namespace }}.svc
+  - {{ .Release.Name }}-webhook-service.{{ .Release.Namespace }}.svc.cluster.local
   issuerRef:
     kind: Issuer
-    name: operator-selfsigned-issuer
+    name: {{ .Release.Name }}-selfsigned-issuer
   secretName: webhook-server-cert
 {{- end }}

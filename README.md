@@ -1,60 +1,86 @@
-# Decofile Operator
+# Deco CMS Operator
 
-A Kubernetes operator that manages Decofile custom resources and automatically injects ConfigMaps into Knative Services.
+A Kubernetes operator for Deco CMS that manages configuration resources and automatically injects them into Knative Services.
 
 ## Description
 
-The Decofile operator enables you to:
+The Deco CMS operator manages **Decofile** custom resources, which represent configuration files for your Deco applications. The operator enables you to:
 - Define JSON configuration data as Kubernetes custom resources (Decofiles)
 - Automatically create ConfigMaps from Decofile resources
 - Inject ConfigMaps into Knative Services via annotations using a mutating webhook
 
 ## Features
 
-- ✅ **Automated ConfigMap Management**: Automatically creates and updates ConfigMaps from Decofile resources
-- ✅ **Webhook-based Injection**: Mutating webhook automatically injects ConfigMaps into Knative Services
-- ✅ **Flexible Resolution**: Support for "default" annotation to resolve decofile names from labels
-- ✅ **Custom Mount Paths**: Configure mount paths via annotations
+### Decofile Management
+- ✅ **Dual Source Support**: Inline JSON or GitHub repository sources
+- ✅ **Automated ConfigMap Generation**: Creates/updates ConfigMaps from Decofile resources
+- ✅ **Unified Format**: All sources produce consistent `decofile.json` format
+- ✅ **Special Filename Support**: Preserves filenames with `%`, spaces, and special characters
 - ✅ **Owner References**: Automatic cleanup when Decofiles are deleted
-- ✅ **Status Tracking**: Comprehensive status reporting with conditions
-- ✅ **Multi-Instance Ready**: Built-in leader election for high availability
 
-## Getting Started
+### Knative Integration
+- ✅ **Webhook-based Injection**: Automatically injects ConfigMaps into Knative Services
+- ✅ **File Mounting**: Mounts as `/app/decofile/decofile.json` by default
+- ✅ **DECO_RELEASE Env Var**: Auto-injected for application discovery
+- ✅ **Custom Mount Paths**: Configurable via annotations
+- ✅ **Label-Based Tracking**: Pods labeled for easy discovery
+
+### Change Notifications
+- ✅ **Automatic Reload**: Notifies pods when ConfigMaps change
+- ✅ **Smart Delay**: 60-second wait for kubelet sync
+- ✅ **Retry Logic**: Exponential backoff with 5 attempts
+- ✅ **Direct Pod Communication**: HTTP calls to reload endpoints
+
+### Production Ready
+- ✅ **Multi-Instance Ready**: Built-in leader election for high availability
+- ✅ **Helm Support**: Install with Helm for easy configuration
+- ✅ **CI/CD Pipeline**: Automated builds and validation
+- ✅ **Complete Testing**: Unit, integration, and e2e tests
+
+## Quick Start
+
+### Installation with Helm
+
+```bash
+# Clone the repository
+git clone https://github.com/decocms/operator.git
+cd operator
+
+# Install with Helm
+helm upgrade --install deco-operator chart/ \
+  --namespace operator-system \
+  --create-namespace \
+  --wait
+
+# With GitHub token for private repos
+helm upgrade --install deco-operator chart/ \
+  --namespace operator-system \
+  --create-namespace \
+  --set github.token=ghp_your_token \
+  --wait
+```
+
+### Verify Installation
+
+```bash
+# Check operator is running
+kubectl get pods -n operator-system
+
+# Check CRD is installed
+kubectl get crd decofiles.deco.sites
+
+# View operator logs
+kubectl logs -n operator-system -l control-plane=controller-manager -f
+```
 
 ### Prerequisites
 
 - Kubernetes cluster (1.16+)
-- kubectl installed and configured
-- cert-manager installed (for webhook TLS certificates)
-- Knative Serving (if using webhook injection)
-- Go 1.21+ (for development)
+- Helm 3.x (for installation)
+- cert-manager (for webhook TLS)
+- Knative Serving (for injection features)
 
-### Installation
-
-1. Install cert-manager (if not already installed):
-
-```bash
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
-```
-
-2. Build and push your operator image:
-
-```bash
-make docker-build docker-push IMG=<your-registry>/decofile-operator:tag
-```
-
-3. Deploy the operator:
-
-```bash
-make deploy IMG=<your-registry>/decofile-operator:tag
-```
-
-4. Verify installation:
-
-```bash
-kubectl get pods -n decofile-operator-system
-kubectl get crd decofiles.deco.sites.deco.sites
-```
+See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment options and [HELM.md](HELM.md) for complete Helm documentation.
 
 ## Usage
 
@@ -133,30 +159,36 @@ The operator will automatically create a ConfigMap named `decofile-<name>` with 
 
 ### Injecting into Knative Services
 
-Add annotations to your Knative Service to inject the Decofile:
+Add annotations to your Knative Service to automatically inject the Decofile:
 
 ```yaml
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: miess-01-site
-  namespace: sites-miess-01  # Site name extracted from namespace (strips "sites-" prefix)
+  name: my-site
+  namespace: sites-mysite  # Namespace must start with "sites-" for "default" resolution
   annotations:
-    deco.sites/decofile-inject: "default"  # or specify decofile name
-    # deco.sites/decofile-mount-path: "/custom/path"  # optional
+    deco.sites/decofile-inject: "default"  # Resolves to "decofile-mysite-main"
+    # deco.sites/decofile-mount-path: "/custom/path"  # Optional: custom mount directory
 spec:
   template:
     spec:
       containers:
         - name: app
-          image: your-image:tag
+          image: your-deco-app:latest
 ```
 
-The webhook will automatically:
-1. Resolve the Decofile name (if "default", extracts site from namespace and uses `decofile-{site}-main`)
-2. Get the ConfigMap name from the Decofile status
-3. Inject a projected volume with the ConfigMap
-4. Add a volumeMount to the container at `/app/deco/.deco/blocks` (or custom path)
+**What the webhook does automatically:**
+1. ✅ Resolves the Decofile name (e.g., `"default"` → `decofile-mysite-main`)
+2. ✅ Fetches the ConfigMap from the Decofile status
+3. ✅ Mounts ConfigMap as `/app/decofile/decofile.json` (or custom path)
+4. ✅ Injects `DECO_RELEASE=file:///app/decofile/decofile.json` environment variable
+5. ✅ Labels pod with `deco.sites/decofile: <name>` for tracking
+
+**Your application receives:**
+- `DECO_RELEASE` env var pointing to the config file
+- Single JSON file with all configuration: `{"file1.json": {...}, "file2.json": {...}}`
+- Auto-updates when Decofile changes (with 60s kubelet sync delay)
 
 ## Annotations
 
@@ -230,31 +262,63 @@ Best for:
 
 ## Architecture
 
-### Controller
+The Deco CMS Operator consists of three main components:
 
-The Decofile controller watches Decofile resources and:
-1. Checks the source type (inline or github)
-2. For inline: extracts JSON from spec
-3. For GitHub: downloads ZIP, extracts specified path
-4. Creates/updates a ConfigMap named `decofile-{decofile-name}`
-5. Sets owner references for automatic cleanup
-6. Updates the Decofile status with ConfigMap name, source type, and conditions
+### 1. Decofile Controller
 
-### Webhook
+Manages the lifecycle of Decofile custom resources:
 
-The mutating webhook intercepts CREATE/UPDATE operations on Knative Services and:
-1. Checks for the `deco.sites/decofile-inject` annotation
-2. Resolves the Decofile name (handles "default" resolution)
-3. Queries the Decofile to get the ConfigMap name
-4. Injects a projected volume mounting the ConfigMap
-5. Adds a volumeMount to the container
+**Responsibilities:**
+- Watches Decofile resources for changes
+- Retrieves configuration from inline or GitHub sources  
+- Creates/updates ConfigMaps with unified `decofile.json` format
+- Detects ConfigMap changes and notifies affected pods
+- Updates status with conditions and metadata
 
-### Multi-Instance Support
+**Source Implementations:**
+- `InlineSource` - Parses inline JSON values
+- `GitHubSource` - Downloads from GitHub repositories
+- Strategy pattern for easy extensibility
 
-The operator supports running multiple replicas for high availability:
-- Leader election ensures only one active reconciler
-- Webhooks are stateless (all instances handle requests)
-- Configure replicas in the deployment manifest
+**Change Notifications:**
+- Discovers pods via `deco.sites/decofile` label
+- Calls `/deco/.decofile/reload?delay=60000` on each pod
+- Waits for pods to confirm reload before completing reconciliation
+
+### 2. Mutating Webhook
+
+Intercepts Knative Service CREATE/UPDATE operations:
+
+**Injection Process:**
+1. Checks for `deco.sites/decofile-inject` annotation
+2. Resolves Decofile name ("default" or explicit)
+3. Fetches ConfigMap name from Decofile status
+4. Mounts ConfigMap as `/app/decofile/` directory
+5. Injects `DECO_RELEASE` environment variable
+6. Labels pods with `deco.sites/decofile` for tracking
+
+**Features:**
+- Supports custom mount paths via annotation
+- Handles "default" resolution from namespace
+- TLS secured via cert-manager
+
+### 3. Pod Notifier
+
+Notifies pods about configuration changes:
+
+**Flow:**
+- Triggered when ConfigMap data changes
+- Queries pods by Decofile label
+- HTTP GET with `?delay=60000` parameter
+- Pods wait for kubelet sync before reading file
+- Retries with exponential backoff
+
+### High Availability
+
+- ✅ **Leader Election**: Only one controller instance reconciles
+- ✅ **Stateless Webhooks**: All instances handle requests
+- ✅ **Horizontal Scaling**: Configure via `replicaCount` in Helm
+- ✅ **Automatic Failover**: Built into controller-runtime
 
 ## Development
 

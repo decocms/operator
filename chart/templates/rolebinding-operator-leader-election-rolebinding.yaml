@@ -4,13 +4,13 @@ metadata:
   labels:
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/name: operator
-  name: {{ include "operator.fullname" . }}-leader-election-rolebinding
+  name: {{ .Release.Name }}-leader-election-rolebinding
   namespace: {{ .Release.Namespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ include "operator.fullname" . }}-leader-election-role
+  name: {{ .Release.Name }}-leader-election-role
 subjects:
 - kind: ServiceAccount
-  name: {{ include "operator.fullname" . }}-controller-manager
+  name: {{ .Release.Name }}-controller-manager
   namespace: {{ .Release.Namespace }}

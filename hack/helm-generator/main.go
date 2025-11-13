@@ -124,17 +124,28 @@ func applySubstitutions(content string) string {
 		`image: ghcr.io/decocms/operator:latest`:          `image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"`,
 		`namespace: operator-system`:                      `namespace: {{ .Release.Namespace }}`,
 		`namespace: system`:                               `namespace: {{ .Release.Namespace }}`,
-		`name: operator-controller-manager`:               `name: {{ include "operator.fullname" . }}-controller-manager`,
-		`serviceAccountName: operator-controller-manager`: `serviceAccountName: {{ include "operator.serviceAccountName" . }}`,
+		`name: operator-controller-manager`:               `name: {{ .Release.Name }}-controller-manager`,
+		`serviceAccountName: operator-controller-manager`: `serviceAccountName: {{ .Release.Name }}-controller-manager`,
 	}
 
 	for old, new := range replacements {
 		content = strings.ReplaceAll(content, old, new)
 	}
 
-	// Replace operator- prefix in names (but not in namespaces)
+	// Replace operator- prefix in names - use Release.Name directly to avoid length issues
 	re := regexp.MustCompile(`(?m)^  name: operator-(\w+)`)
-	content = re.ReplaceAllString(content, `  name: {{ include "operator.fullname" . }}-$1`)
+	content = re.ReplaceAllString(content, `  name: {{ .Release.Name }}-$1`)
+
+	// Fix issuer references in certificates
+	content = strings.ReplaceAll(content, "name: operator-selfsigned-issuer", "name: {{ .Release.Name }}-selfsigned-issuer")
+
+	// Fix service references in webhook configurations
+	content = strings.ReplaceAll(content, "name: operator-webhook-service", "name: {{ .Release.Name }}-webhook-service")
+	content = strings.ReplaceAll(content, "name: operator-controller-manager-metrics-service", "name: {{ .Release.Name }}-controller-manager-metrics-service")
+
+	// Fix DNS names in certificates to match service names
+	content = strings.ReplaceAll(content, "operator-webhook-service.operator-system.svc", "{{ .Release.Name }}-webhook-service.{{ .Release.Namespace }}.svc")
+	content = strings.ReplaceAll(content, "operator-webhook-service.operator-system.svc.cluster.local", "{{ .Release.Name }}-webhook-service.{{ .Release.Namespace }}.svc.cluster.local")
 
 	return content
 }

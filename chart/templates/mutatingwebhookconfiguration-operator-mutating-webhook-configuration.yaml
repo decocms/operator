@@ -2,13 +2,13 @@
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
-  name: {{ include "operator.fullname" . }}-mutating-webhook-configuration
+  name: {{ .Release.Name }}-mutating-webhook-configuration
 webhooks:
 - admissionReviewVersions:
   - v1
   clientConfig:
     service:
-      name: operator-webhook-service
+      name: {{ .Release.Name }}-webhook-service
       namespace: {{ .Release.Namespace }}
       path: /mutate-serving-knative-dev-v1-service
   failurePolicy: Fail

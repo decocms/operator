@@ -7,16 +7,17 @@ Expand the name of the chart.
 
 {{/*
 Create a default fully qualified app name.
+Truncate early to prevent downstream resource names from exceeding 63 chars
 */}}
 {{- define "operator.fullname" -}}
 {{- if .Values.fullnameOverride }}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- .Values.fullnameOverride | trunc 40 | trimSuffix "-" }}
 {{- else }}
 {{- $name := default .Chart.Name .Values.nameOverride }}
 {{- if contains $name .Release.Name }}
-{{- .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- .Release.Name | trunc 40 | trimSuffix "-" }}
 {{- else }}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- printf "%s-%s" .Release.Name $name | trunc 40 | trimSuffix "-" }}
 {{- end }}
 {{- end }}
 {{- end }}
