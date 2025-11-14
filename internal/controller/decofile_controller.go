@@ -54,6 +54,7 @@ type DecofileReconciler struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
+// nolint:gocyclo
 func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
@@ -73,6 +74,28 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// Define the ConfigMap name
 	configMapName := fmt.Sprintf("decofile-%s", decofile.Name)
+
+	// For GitHub source, check if we need to re-download based on commit
+	shouldRetrieve := true
+	if decofile.Spec.Source == SourceTypeGitHub && decofile.Spec.GitHub != nil {
+		// Check if commit changed
+		if decofile.Status.GitHubCommit == decofile.Spec.GitHub.Commit {
+			// Commit hasn't changed, check if ConfigMap exists
+			testCM := &corev1.ConfigMap{}
+			err := r.Get(ctx, client.ObjectKey{Name: configMapName, Namespace: decofile.Namespace}, testCM)
+			if err == nil {
+				// ConfigMap exists and commit unchanged - skip download
+				shouldRetrieve = false
+				log.V(1).Info("GitHub commit unchanged and ConfigMap exists, skipping download", "commit", decofile.Spec.GitHub.Commit)
+			}
+		}
+	}
+
+	if !shouldRetrieve {
+		// Nothing changed - skip this reconciliation
+		log.V(1).Info("GitHub commit unchanged and ConfigMap exists, skipping reconciliation")
+		return ctrl.Result{}, nil
+	}
 
 	// Get the appropriate source implementation
 	source, err := NewSource(r.Client, decofile)

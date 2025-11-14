@@ -120,8 +120,23 @@ func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object
 		mountDir = customPath
 	}
 
-	// Create DECO_RELEASE environment variable value pointing to the file within the directory
-	decoReleaseValue := fmt.Sprintf("file://%s/decofile.json", mountDir)
+	// Check if ConfigMap is compressed to set correct file extension
+	configMap := &corev1.ConfigMap{}
+	err = d.Client.Get(ctx, types.NamespacedName{
+		Name:      decofile.Status.ConfigMapName,
+		Namespace: service.Namespace,
+	}, configMap)
+
+	fileExtension := "json"
+	if err == nil {
+		// Check if compressed
+		if _, hasCompressed := configMap.Data["decofile.bin"]; hasCompressed {
+			fileExtension = "bin"
+		}
+	}
+
+	// Create DECO_RELEASE environment variable pointing to the correct file
+	decoReleaseValue := fmt.Sprintf("file://%s/decofile.%s", mountDir, fileExtension)
 
 	// Ensure volumes array exists
 	if service.Spec.Template.Spec.Volumes == nil {
