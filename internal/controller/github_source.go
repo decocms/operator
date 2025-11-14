@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
@@ -101,8 +102,16 @@ func (s *GitHubSource) Retrieve(ctx context.Context) (string, error) {
 	// Parse each file as JSON to avoid double-stringification
 	filesJSON := make(map[string]json.RawMessage)
 	for filename, content := range files {
+		// URL decode filename (e.g., %20 -> space, %2F -> /)
+		decodedFilename, err := url.QueryUnescape(filename)
+		if err != nil {
+			// If decode fails, use original
+			log.V(1).Info("Failed to decode filename, using original", "filename", filename, "error", err)
+			decodedFilename = filename
+		}
+
 		// Strip .json extension from filename
-		cleanFilename := strings.TrimSuffix(filename, ".json")
+		cleanFilename := strings.TrimSuffix(decodedFilename, ".json")
 		filesJSON[cleanFilename] = json.RawMessage(content)
 	}
 
