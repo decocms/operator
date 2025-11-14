@@ -18,8 +18,8 @@ package controller
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
-	"reflect"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -32,6 +32,11 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
+)
+
+const (
+	// Compression threshold: 2.5MB (ConfigMap limit is 3MB, leave buffer)
+	compressionThreshold = 2.5 * 1024 * 1024
 )
 
 // DecofileReconciler reconciles a Decofile object
@@ -85,47 +90,101 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	sourceType := source.SourceType()
 
-	// Define the desired ConfigMap with single decofile.json key
-	configMap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      configMapName,
-			Namespace: decofile.Namespace,
-		},
-		Data: map[string]string{
+	// Prepare ConfigMap data with optional compression
+	var configData map[string]string
+	var contentKey string // "decofile.json" or "decofile.bin"
+
+	if len(jsonContent) > compressionThreshold {
+		// Compress large content with Brotli
+		compressed, err := compressBrotli([]byte(jsonContent))
+		if err != nil {
+			log.Error(err, "Failed to compress config")
+			return ctrl.Result{}, fmt.Errorf("failed to compress config: %w", err)
+		}
+
+		configData = map[string]string{
+			"decofile.bin": base64.StdEncoding.EncodeToString(compressed),
+		}
+		contentKey = "decofile.bin"
+
+		compressionRatio := float64(len(compressed)) / float64(len(jsonContent)) * 100
+		log.Info("Compressed large config",
+			"originalSize", len(jsonContent),
+			"compressedSize", len(compressed),
+			"ratio", fmt.Sprintf("%.1f%%", compressionRatio))
+	} else {
+		// Store uncompressed for small configs
+		configData = map[string]string{
 			"decofile.json": jsonContent,
-		},
+		}
+		contentKey = "decofile.json"
 	}
 
-	// Set Decofile instance as the owner of the ConfigMap
-	if err := controllerutil.SetControllerReference(decofile, configMap, r.Scheme); err != nil {
-		log.Error(err, "Failed to set owner reference on ConfigMap")
-		return ctrl.Result{}, err
-	}
-
-	// Check if the ConfigMap already exists and detect changes
+	// Check if the ConfigMap already exists
 	found := &corev1.ConfigMap{}
 	err = r.Get(ctx, client.ObjectKey{Name: configMapName, Namespace: decofile.Namespace}, found)
 
 	var dataChanged bool
+	var timestamp string
 
 	if err != nil && errors.IsNotFound(err) {
-		log.Info("Creating a new ConfigMap", "ConfigMap.Namespace", configMap.Namespace, "ConfigMap.Name", configMap.Name)
+		// New ConfigMap - create with new timestamp (Unix seconds)
+		timestamp = fmt.Sprintf("%d", time.Now().Unix())
+		dataChanged = false // New ConfigMap, no notification needed
+
+		// Add timestamp
+		configData["timestamp.txt"] = timestamp
+
+		configMap := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      configMapName,
+				Namespace: decofile.Namespace,
+			},
+			Data: configData,
+		}
+
+		if err := controllerutil.SetControllerReference(decofile, configMap, r.Scheme); err != nil {
+			log.Error(err, "Failed to set owner reference on ConfigMap")
+			return ctrl.Result{}, err
+		}
+
+		log.Info("Creating a new ConfigMap", "ConfigMap.Namespace", configMap.Namespace, "ConfigMap.Name", configMap.Name, "timestamp", timestamp)
 		err = r.Create(ctx, configMap)
 		if err != nil {
 			log.Error(err, "Failed to create new ConfigMap", "ConfigMap.Namespace", configMap.Namespace, "ConfigMap.Name", configMap.Name)
 			return ctrl.Result{}, err
 		}
-		dataChanged = false // New ConfigMap, no notification needed
 	} else if err != nil {
 		log.Error(err, "Failed to get ConfigMap")
 		return ctrl.Result{}, err
 	} else {
-		// ConfigMap exists, check if data changed
-		dataChanged = !reflect.DeepEqual(found.Data, configMap.Data)
+		// ConfigMap exists - check if content changed
+		// Determine what key the existing ConfigMap uses
+		var existingKey string
+		if _, hasBin := found.Data["decofile.bin"]; hasBin {
+			existingKey = "decofile.bin"
+		} else {
+			existingKey = "decofile.json"
+		}
+
+		// Check if format changed (compressed <-> uncompressed) or content changed
+		formatChanged := existingKey != contentKey
+		contentChanged := found.Data[existingKey] != configData[contentKey]
+		dataChanged = formatChanged || contentChanged
+
+		if formatChanged {
+			log.Info("ConfigMap format changed", "from", existingKey, "to", contentKey)
+		}
 
 		if dataChanged {
-			log.Info("ConfigMap data changed, updating", "ConfigMap.Name", found.Name)
-			found.Data = configMap.Data
+			// Content changed - update with new timestamp (Unix seconds)
+			timestamp = fmt.Sprintf("%d", time.Now().Unix())
+			log.Info("ConfigMap content changed, updating", "ConfigMap.Name", found.Name, "newTimestamp", timestamp)
+
+			// Replace all data
+			found.Data = configData
+			found.Data["timestamp.txt"] = timestamp
+
 			err = r.Update(ctx, found)
 			if err != nil {
 				log.Error(err, "Failed to update ConfigMap", "ConfigMap.Namespace", found.Namespace, "ConfigMap.Name", found.Name)
@@ -133,22 +192,24 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			}
 			log.Info("Updated existing ConfigMap", "ConfigMap.Namespace", found.Namespace, "ConfigMap.Name", found.Name)
 		} else {
-			log.V(1).Info("ConfigMap data unchanged, skipping update", "ConfigMap.Name", found.Name)
+			// Content unchanged - keep existing timestamp
+			timestamp = found.Data["timestamp.txt"]
+			log.V(1).Info("ConfigMap content unchanged, keeping existing timestamp", "ConfigMap.Name", found.Name)
 		}
 	}
 
 	// Notify pods if ConfigMap data changed
 	if dataChanged {
-		log.Info("ConfigMap data changed, notifying pods")
+		log.Info("ConfigMap data changed, notifying pods", "timestamp", timestamp)
 
 		notifier := NewNotifier(r.Client)
-		err = notifier.NotifyPodsForDecofile(ctx, decofile.Namespace, decofile.Name)
+		err = notifier.NotifyPodsForDecofile(ctx, decofile.Namespace, decofile.Name, timestamp)
 		if err != nil {
 			log.Error(err, "Failed to notify pods", "decofile", decofile.Name)
 			return ctrl.Result{}, fmt.Errorf("failed to notify pods: %w", err)
 		}
 
-		log.Info("Successfully notified all pods")
+		log.Info("Successfully notified all pods", "timestamp", timestamp)
 	}
 
 	// Re-fetch the Decofile to get the latest version before updating status

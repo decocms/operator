@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -29,12 +30,12 @@ import (
 )
 
 const (
-	reloadEndpoint    = "/.decofile/reload"
-	reloadTimeout     = 90 * time.Second // Longer timeout to account for delay parameter
-	maxRetries        = 5
-	initialBackoff    = 1 * time.Second
-	decofileLabel     = "deco.sites/decofile"
-	configSyncDelayMS = 70000 // 70 seconds for kubelet to sync ConfigMap to pods
+	reloadEndpoint   = "/.decofile/reload"
+	reloadTimeout    = 90 * time.Second // Longer timeout for long-polling
+	maxRetries       = 3                // Fewer retries since we're doing long-poll
+	initialBackoff   = 5 * time.Second  // Longer backoff for long-poll
+	decofileLabel    = "deco.sites/decofile"
+	defaultMountPath = "/app/decofile"
 )
 
 // Notifier handles notifying pods about ConfigMap changes
@@ -55,7 +56,7 @@ func NewNotifier(k8sClient client.Client) *Notifier {
 
 // NotifyPodsForDecofile notifies all pods using the given Decofile
 // that the ConfigMap has changed and they should reload
-func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, decofileName string) error {
+func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, decofileName, timestamp string) error {
 	log := logf.FromContext(ctx)
 
 	log.Info("Notifying pods for Decofile", "decofile", decofileName, "namespace", namespace)
@@ -99,14 +100,14 @@ func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, decofil
 			port = pod.Spec.Containers[0].Ports[0].ContainerPort
 		}
 
-		err := n.notifyPodWithRetry(ctx, pod.Name, pod.Status.PodIP, port)
+		err := n.notifyPodWithRetry(ctx, pod.Name, pod.Status.PodIP, port, timestamp)
 		if err != nil {
 			errMsg := fmt.Sprintf("failed to notify pod %s (IP: %s:%d): %v", pod.Name, pod.Status.PodIP, port, err)
 			log.Error(err, "Failed to notify pod after retries", "pod", pod.Name, "ip", pod.Status.PodIP, "port", port)
 			allErrors = append(allErrors, errMsg)
 			failCount++
 		} else {
-			log.Info("Successfully notified pod", "pod", pod.Name, "ip", pod.Status.PodIP, "port", port)
+			log.Info("Successfully notified pod", "pod", pod.Name, "ip", pod.Status.PodIP, "port", port, "timestamp", timestamp)
 			successCount++
 		}
 	}
@@ -121,17 +122,20 @@ func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, decofil
 }
 
 // notifyPodWithRetry attempts to notify a single pod with exponential backoff retry
-func (n *Notifier) notifyPodWithRetry(ctx context.Context, podName, podIP string, port int32) error {
+// Uses long-polling with timestamp to ensure pod has received the update
+func (n *Notifier) notifyPodWithRetry(ctx context.Context, podName, podIP string, port int32, timestamp string) error {
 	log := logf.FromContext(ctx)
-	// Add delay parameter to give kubelet time to sync ConfigMap to pod
-	url := fmt.Sprintf("http://%s:%d%s?delay=%d", podIP, port, reloadEndpoint, configSyncDelayMS)
+	// Long-poll endpoint: pod will wait until timestamp file >= expected timestamp
+	tsFilePath := fmt.Sprintf("%s/timestamp.txt", defaultMountPath)
+	requestURL := fmt.Sprintf("http://%s:%d%s?timestamp=%s&tsFile=%s",
+		podIP, port, reloadEndpoint, url.QueryEscape(timestamp), url.QueryEscape(tsFilePath))
 
 	backoff := initialBackoff
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		log.V(1).Info("Attempting to notify pod", "pod", podName, "attempt", attempt, "url", url)
+		log.V(1).Info("Attempting to notify pod", "pod", podName, "attempt", attempt, "url", requestURL)
 
-		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		req, err := http.NewRequestWithContext(ctx, "GET", requestURL, nil)
 		if err != nil {
 			return fmt.Errorf("failed to create request: %w", err)
 		}

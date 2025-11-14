@@ -1,25 +1,71 @@
-// Test application for Decofile Operator
-// Responds to reload requests and reads mounted decofile.json
+// Test application for Deco CMS Operator
+// Responds to reload requests with long-polling timestamp verification
+// Supports both compressed and uncompressed configs
 
-const CONFIG_FILE = "/app/decofile/decofile.json";
+const CONFIG_DIR = "/app/decofile";
 
-async function handleReload(delayMs?: number): Promise<Response> {
+// Load config with automatic decompression
+async function loadConfig(): Promise<Record<string, unknown>> {
+  // Check if compressed (.bin file exists)
+  try {
+    const binContent = await Deno.readTextFile(`${CONFIG_DIR}/decofile.bin`);
+    console.log("📦 Detected compressed config (decofile.bin)");
+    // Note: Deno doesn't have native brotli support yet
+    // In production, use: import { decompress } from "https://deno.land/x/brotli@v0.1.7/mod.ts";
+    throw new Error("Brotli decompression not implemented in test app - use brotli library in production");
+  } catch (error) {
+    if (error.message.includes("not implemented")) {
+      throw error;
+    }
+    // .bin doesn't exist, continue to .json
+  }
+  
+  // Read uncompressed .json
+  const content = await Deno.readTextFile(`${CONFIG_DIR}/decofile.json`);
+  return JSON.parse(content);
+}
+
+async function handleReload(expectedTimestamp?: string, tsFilePath?: string): Promise<Response> {
   console.log("=== RELOAD REQUEST RECEIVED ===");
-  console.log(`Reading from: ${CONFIG_FILE}`);
-  console.log(`Timestamp: ${new Date().toISOString()}`);
+  console.log(`Reading from: ${CONFIG_DIR}`);
+  console.log(`Current time: ${new Date().toISOString()}`);
   console.log(`DECO_RELEASE env: ${Deno.env.get("DECO_RELEASE") || "not set"}`);
   
-  // Wait for ConfigMap to propagate if delay is specified
-  if (delayMs && delayMs > 0) {
-    console.log(`⏳ Waiting ${delayMs}ms for ConfigMap to sync...`);
-    await new Promise(resolve => setTimeout(resolve, delayMs));
-    console.log(`✓ Wait complete, reading file now`);
+  // Long-polling: wait for timestamp file to be >= expected timestamp
+  if (expectedTimestamp && tsFilePath) {
+    console.log(`⏳ Long-polling for timestamp >= ${expectedTimestamp} (Unix seconds)`);
+    console.log(`   Timestamp file: ${tsFilePath}`);
+    
+    const expectedTs = parseInt(expectedTimestamp, 10);
+    const maxWaitSeconds = 120;
+    const pollIntervalMs = 2000;
+    const startTime = Date.now();
+    
+    while ((Date.now() - startTime) < maxWaitSeconds * 1000) {
+      try {
+        const fileTimestamp = await Deno.readTextFile(tsFilePath);
+        const fileTs = parseInt(fileTimestamp.trim(), 10);
+        
+        console.log(`   Current file timestamp: ${fileTs} (${new Date(fileTs * 1000).toISOString()})`);
+        
+        // Compare Unix timestamps
+        if (fileTs >= expectedTs) {
+          console.log(`✓ Timestamp satisfied! (${fileTs} >= ${expectedTs})`);
+          break;
+        }
+        
+        console.log(`   Waiting... (${Math.round((Date.now() - startTime) / 1000)}s elapsed)`);
+        await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+      } catch (error) {
+        console.error(`   Error reading timestamp file: ${error.message}`);
+        await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+      }
+    }
   }
   
   try {
-    // Read the decofile.json which contains all files
-    const fileContent = await Deno.readTextFile(CONFIG_FILE);
-    const filesMap = JSON.parse(fileContent);
+    // Load config (handles compression automatically)
+    const filesMap = await loadConfig();
     
     const fileNames = Object.keys(filesMap);
     console.log(`\n📦 Found ${fileNames.length} file(s) in decofile.json`);
@@ -46,7 +92,7 @@ async function handleReload(delayMs?: number): Promise<Response> {
       headers: { "Content-Type": "text/plain" }
     });
   } catch (error) {
-    const errorMsg = `Error reading decofile.json: ${error.message}`;
+    const errorMsg = `Error reading decofile: ${error.message}`;
     console.error(errorMsg);
     console.error(error);
     return new Response(errorMsg + "\n", { 
@@ -65,10 +111,10 @@ function handleHealth(): Response {
 
 function handleRoot(): Response {
   return new Response(
-    "Decofile Test App\n" +
+    "Deco CMS Test App\n" +
     "Endpoints:\n" +
     "  GET /health - Health check\n" +
-    "  GET /.decofile/reload?delay=<ms> - Reload configuration\n",
+    "  GET /.decofile/reload?timestamp=<ts>&tsFile=<path> - Reload with long-polling\n",
     { 
       status: 200,
       headers: { "Content-Type": "text/plain" }
@@ -80,8 +126,8 @@ function handleRoot(): Response {
 Deno.serve({ 
   port: 8080,
   onListen: ({ hostname, port }) => {
-    console.log(`🚀 Decofile Test App listening on http://${hostname}:${port}`);
-    console.log(`📄 Config file: ${CONFIG_FILE}`);
+    console.log(`🚀 Deco CMS Test App listening on http://${hostname}:${port}`);
+    console.log(`📁 Config directory: ${CONFIG_DIR}`);
     console.log(`🌍 DECO_RELEASE: ${Deno.env.get("DECO_RELEASE") || "not set"}`);
   }
 }, async (req) => {
@@ -95,10 +141,10 @@ Deno.serve({
   }
   
   if (pathname === "/.decofile/reload") {
-    // Parse delay query parameter
-    const delayParam = url.searchParams.get("delay");
-    const delayMs = delayParam ? parseInt(delayParam, 10) : undefined;
-    return await handleReload(delayMs);
+    // Parse long-polling parameters
+    const expectedTimestamp = url.searchParams.get("timestamp") || undefined;
+    const tsFilePath = url.searchParams.get("tsFile") || undefined;
+    return await handleReload(expectedTimestamp, tsFilePath);
   }
   
   if (pathname === "/") {
