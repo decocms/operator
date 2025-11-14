@@ -38,6 +38,11 @@ type DecofileSpec struct {
 	// GitHub contains repository information (used when source=github)
 	// +optional
 	GitHub *GitHubSource `json:"github,omitempty"`
+
+	// Silent disables pod notifications when ConfigMap changes
+	// If true, pods will not be notified and must poll or restart to get updates
+	// +optional
+	Silent bool `json:"silent,omitempty"`
 }
 
 // InlineSource contains direct JSON configuration data

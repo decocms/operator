@@ -221,18 +221,22 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
-	// Notify pods if ConfigMap data changed
+	// Notify pods if ConfigMap data changed (unless silent mode is enabled)
 	if dataChanged {
-		log.Info("ConfigMap data changed, notifying pods", "timestamp", timestamp)
+		if decofile.Spec.Silent {
+			log.Info("ConfigMap data changed but notifications disabled (silent mode)", "timestamp", timestamp)
+		} else {
+			log.Info("ConfigMap data changed, notifying pods", "timestamp", timestamp)
 
-		notifier := NewNotifier(r.Client)
-		err = notifier.NotifyPodsForDecofile(ctx, decofile.Namespace, decofile.Name, timestamp)
-		if err != nil {
-			log.Error(err, "Failed to notify pods", "decofile", decofile.Name)
-			return ctrl.Result{}, fmt.Errorf("failed to notify pods: %w", err)
+			notifier := NewNotifier(r.Client)
+			err = notifier.NotifyPodsForDecofile(ctx, decofile.Namespace, decofile.Name, timestamp)
+			if err != nil {
+				log.Error(err, "Failed to notify pods", "decofile", decofile.Name)
+				return ctrl.Result{}, fmt.Errorf("failed to notify pods: %w", err)
+			}
+
+			log.Info("Successfully notified all pods", "timestamp", timestamp)
 		}
-
-		log.Info("Successfully notified all pods", "timestamp", timestamp)
 	}
 
 	// Re-fetch the Decofile to get the latest version before updating status

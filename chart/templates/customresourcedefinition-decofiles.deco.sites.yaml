@@ -78,6 +78,11 @@ spec:
                 required:
                 - value
                 type: object
+              silent:
+                description: |-
+                  Silent disables pod notifications when ConfigMap changes
+                  If true, pods will not be notified and must poll or restart to get updates
+                type: boolean
               source:
                 description: Source specifies where to get the configuration data
                 enum:
