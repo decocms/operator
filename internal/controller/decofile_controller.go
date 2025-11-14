@@ -221,6 +221,33 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
+	// Reset PodsNotified condition when change is detected (before notifying)
+	if dataChanged && !decofile.Spec.Silent {
+		// Set condition to InProgress before attempting notification
+		tempDecofile := &decositesv1alpha1.Decofile{}
+		err = r.Get(ctx, req.NamespacedName, tempDecofile)
+		if err == nil {
+			// Include commit/timestamp for tracking
+			var updateIdentifier string
+			if decofile.Spec.Source == SourceTypeGitHub && decofile.Spec.GitHub != nil {
+				updateIdentifier = fmt.Sprintf("commit:%s", decofile.Spec.GitHub.Commit)
+			} else {
+				updateIdentifier = fmt.Sprintf("timestamp:%s", timestamp)
+			}
+
+			inProgressCondition := metav1.Condition{
+				Type:               "PodsNotified",
+				Status:             metav1.ConditionUnknown,
+				Reason:             "NotificationInProgress",
+				Message:            fmt.Sprintf("Notifying pods for %s", updateIdentifier),
+				LastTransitionTime: metav1.Now(),
+			}
+			updateCondition(tempDecofile, inProgressCondition)
+			_ = r.Status().Update(ctx, tempDecofile)
+			log.Info("Reset PodsNotified condition to InProgress", "identifier", updateIdentifier)
+		}
+	}
+
 	// Notify pods if ConfigMap data changed (unless silent mode is enabled)
 	var podsNotified bool
 	var notificationError string
@@ -278,12 +305,21 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// Update PodsNotified condition (only when not silent)
 	if !freshDecofile.Spec.Silent && dataChanged {
 		var podsNotifiedCondition metav1.Condition
+
+		// Include commit or timestamp in message for matching
+		var updateIdentifier string
+		if freshDecofile.Spec.Source == SourceTypeGitHub && freshDecofile.Spec.GitHub != nil {
+			updateIdentifier = fmt.Sprintf("commit:%s", freshDecofile.Spec.GitHub.Commit)
+		} else {
+			updateIdentifier = fmt.Sprintf("timestamp:%s", timestamp)
+		}
+
 		if podsNotified {
 			podsNotifiedCondition = metav1.Condition{
 				Type:               "PodsNotified",
 				Status:             metav1.ConditionTrue,
 				Reason:             "NotificationSucceeded",
-				Message:            fmt.Sprintf("Successfully notified all pods at %s", timestamp),
+				Message:            fmt.Sprintf("Successfully notified all pods for %s", updateIdentifier),
 				LastTransitionTime: metav1.Now(),
 			}
 		} else {
@@ -291,7 +327,7 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				Type:               "PodsNotified",
 				Status:             metav1.ConditionFalse,
 				Reason:             "NotificationFailed",
-				Message:            fmt.Sprintf("Failed to notify pods: %s", notificationError),
+				Message:            fmt.Sprintf("Failed to notify pods for %s: %s", updateIdentifier, notificationError),
 				LastTransitionTime: metav1.Now(),
 			}
 		}
