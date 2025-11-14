@@ -222,9 +222,13 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// Notify pods if ConfigMap data changed (unless silent mode is enabled)
+	var podsNotified bool
+	var notificationError string
+
 	if dataChanged {
 		if decofile.Spec.Silent {
 			log.Info("ConfigMap data changed but notifications disabled (silent mode)", "timestamp", timestamp)
+			podsNotified = false
 		} else {
 			log.Info("ConfigMap data changed, notifying pods", "timestamp", timestamp)
 
@@ -232,10 +236,13 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			err = notifier.NotifyPodsForDecofile(ctx, decofile.Namespace, decofile.Name, timestamp)
 			if err != nil {
 				log.Error(err, "Failed to notify pods", "decofile", decofile.Name)
-				return ctrl.Result{}, fmt.Errorf("failed to notify pods: %w", err)
+				notificationError = err.Error()
+				podsNotified = false
+				// Don't return error - update status with failure condition
+			} else {
+				log.Info("Successfully notified all pods", "timestamp", timestamp)
+				podsNotified = true
 			}
-
-			log.Info("Successfully notified all pods", "timestamp", timestamp)
 		}
 	}
 
@@ -258,27 +265,37 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		freshDecofile.Status.GitHubCommit = freshDecofile.Spec.GitHub.Commit
 	}
 
-	// Update the status condition
-	conditionMessage := fmt.Sprintf("ConfigMap %s created successfully from %s source", configMapName, sourceType)
-	condition := metav1.Condition{
+	// Update Ready condition
+	readyCondition := metav1.Condition{
 		Type:               "Ready",
 		Status:             metav1.ConditionTrue,
 		Reason:             "ConfigMapCreated",
-		Message:            conditionMessage,
+		Message:            fmt.Sprintf("ConfigMap %s created successfully from %s source", configMapName, sourceType),
 		LastTransitionTime: metav1.Now(),
 	}
+	updateCondition(freshDecofile, readyCondition)
 
-	// Update or append condition
-	foundCondition := false
-	for i, cond := range freshDecofile.Status.Conditions {
-		if cond.Type == "Ready" {
-			freshDecofile.Status.Conditions[i] = condition
-			foundCondition = true
-			break
+	// Update PodsNotified condition (only when not silent)
+	if !freshDecofile.Spec.Silent && dataChanged {
+		var podsNotifiedCondition metav1.Condition
+		if podsNotified {
+			podsNotifiedCondition = metav1.Condition{
+				Type:               "PodsNotified",
+				Status:             metav1.ConditionTrue,
+				Reason:             "NotificationSucceeded",
+				Message:            fmt.Sprintf("Successfully notified all pods at %s", timestamp),
+				LastTransitionTime: metav1.Now(),
+			}
+		} else {
+			podsNotifiedCondition = metav1.Condition{
+				Type:               "PodsNotified",
+				Status:             metav1.ConditionFalse,
+				Reason:             "NotificationFailed",
+				Message:            fmt.Sprintf("Failed to notify pods: %s", notificationError),
+				LastTransitionTime: metav1.Now(),
+			}
 		}
-	}
-	if !foundCondition {
-		freshDecofile.Status.Conditions = append(freshDecofile.Status.Conditions, condition)
+		updateCondition(freshDecofile, podsNotifiedCondition)
 	}
 
 	err = r.Status().Update(ctx, freshDecofile)
@@ -288,7 +305,28 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	log.Info("Successfully reconciled Decofile")
+
+	// Return error if notifications failed (will requeue)
+	if dataChanged && !freshDecofile.Spec.Silent && !podsNotified {
+		return ctrl.Result{}, fmt.Errorf("failed to notify pods: %s", notificationError)
+	}
+
 	return ctrl.Result{}, nil
+}
+
+// updateCondition updates or appends a condition, only if it changed
+func updateCondition(decofile *decositesv1alpha1.Decofile, newCondition metav1.Condition) {
+	for i, cond := range decofile.Status.Conditions {
+		if cond.Type == newCondition.Type {
+			// Only update if status or message changed (prevent unnecessary updates)
+			if cond.Status != newCondition.Status || cond.Message != newCondition.Message {
+				decofile.Status.Conditions[i] = newCondition
+			}
+			return
+		}
+	}
+	// Condition doesn't exist - append it
+	decofile.Status.Conditions = append(decofile.Status.Conditions, newCondition)
 }
 
 // SetupWithManager sets up the controller with the Manager.
