@@ -31,12 +31,12 @@ import (
 
 const (
 	reloadEndpoint        = "/.decofile/reload"
-	reloadTimeout         = 90 * time.Second // Long-poll timeout per pod
-	maxRetries            = 3                // Retries per pod
+	reloadTimeout         = 150 * time.Second // 2.5 min per pod (120s app wait + 30s buffer)
+	maxRetries            = 2                 // 2 attempts per pod (long timeout reduces retry need)
 	initialBackoff        = 5 * time.Second
 	decofileLabel         = "deco.sites/decofile"
 	defaultMountPath      = "/app/decofile"
-	maxNotificationTime   = 2 * time.Minute // Maximum time for entire notification batch
+	maxNotificationTime   = 5 * time.Minute // Maximum time for entire batch (accommodates long-polling + retries)
 	notificationBatchSize = 10              // Parallel notification batch size
 )
 
