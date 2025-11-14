@@ -37,7 +37,7 @@ const (
 	decofileLabel         = "deco.sites/decofile"
 	defaultMountPath      = "/app/decofile"
 	maxNotificationTime   = 5 * time.Minute // Maximum time for entire batch (accommodates long-polling + retries)
-	notificationBatchSize = 10              // Parallel notification batch size
+	notificationBatchSize = 30              // Parallel notification batch size
 )
 
 // Notifier handles notifying pods about ConfigMap changes
@@ -179,6 +179,7 @@ func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, decofil
 
 // notifyPodWithRetry attempts to notify a single pod with exponential backoff retry
 // Uses long-polling with timestamp to ensure pod has received the update
+// Verifies pod is still running before each retry
 func (n *Notifier) notifyPodWithRetry(ctx context.Context, podName, podIP string, port int32, timestamp string) error {
 	log := logf.FromContext(ctx)
 	// Long-poll endpoint: pod will wait until timestamp file >= expected timestamp
@@ -189,7 +190,7 @@ func (n *Notifier) notifyPodWithRetry(ctx context.Context, podName, podIP string
 	backoff := initialBackoff
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		log.V(1).Info("Attempting to notify pod", "pod", podName, "attempt", attempt, "url", requestURL)
+		log.V(1).Info("Attempting to notify pod", "pod", podName, "attempt", attempt)
 
 		req, err := http.NewRequestWithContext(ctx, "GET", requestURL, nil)
 		if err != nil {
