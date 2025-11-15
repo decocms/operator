@@ -260,7 +260,7 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			log.Info("ConfigMap data changed, notifying pods", "timestamp", timestamp)
 
 			notifier := NewNotifier(r.Client)
-			err = notifier.NotifyPodsForDecofile(ctx, decofile.Namespace, decofile.Name, timestamp)
+			err = notifier.NotifyPodsForDecofile(ctx, decofile.Namespace, decofile.Name, timestamp, jsonContent)
 			if err != nil {
 				log.Error(err, "Failed to notify pods", "decofile", decofile.Name)
 				notificationError = err.Error()

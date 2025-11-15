@@ -17,10 +17,11 @@ limitations under the License.
 package controller
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -31,12 +32,12 @@ import (
 
 const (
 	reloadEndpoint        = "/.decofile/reload"
-	reloadTimeout         = 150 * time.Second // 2.5 min per pod (120s app wait + 30s buffer)
-	maxRetries            = 2                 // 2 attempts per pod (long timeout reduces retry need)
-	initialBackoff        = 5 * time.Second
+	reloadTimeout         = 30 * time.Second // 30s per pod (simple POST, no long-polling)
+	maxRetries            = 3                // 3 attempts per pod
+	initialBackoff        = 2 * time.Second
 	decofileLabel         = "deco.sites/decofile"
 	defaultMountPath      = "/app/decofile"
-	maxNotificationTime   = 5 * time.Minute // Maximum time for entire batch (accommodates long-polling + retries)
+	maxNotificationTime   = 2 * time.Minute // 2 min for entire batch
 	notificationBatchSize = 30              // Parallel notification batch size
 )
 
@@ -59,7 +60,7 @@ func NewNotifier(k8sClient client.Client) *Notifier {
 // NotifyPodsForDecofile notifies all pods using the given Decofile
 // that the ConfigMap has changed and they should reload.
 // Uses parallel batch processing with 2-minute timeout.
-func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, decofileName, timestamp string) error {
+func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, decofileName, timestamp, decofileContent string) error {
 	log := logf.FromContext(ctx)
 
 	log.Info("Notifying pods for Decofile", "decofile", decofileName, "namespace", namespace)
@@ -136,7 +137,7 @@ func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, decofil
 			}
 
 			// Notify pod
-			err = n.notifyPodWithRetry(notifyCtx, name, pod.Status.PodIP, port, timestamp)
+			err = n.notifyPodWithRetry(notifyCtx, name, pod.Status.PodIP, port, timestamp, decofileContent)
 			resultChan <- notifyResult{name, err}
 		}(podName)
 	}
@@ -178,24 +179,33 @@ func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, decofil
 }
 
 // notifyPodWithRetry attempts to notify a single pod with exponential backoff retry
-// Uses long-polling with timestamp to ensure pod has received the update
-// Verifies pod is still running before each retry
-func (n *Notifier) notifyPodWithRetry(ctx context.Context, podName, podIP string, port int32, timestamp string) error {
+// POSTs JSON payload containing the decofile content
+func (n *Notifier) notifyPodWithRetry(ctx context.Context, podName, podIP string, port int32, timestamp, decofileContent string) error {
 	log := logf.FromContext(ctx)
-	// Long-poll endpoint: pod will wait until timestamp file >= expected timestamp
-	tsFilePath := fmt.Sprintf("%s/timestamp.txt", defaultMountPath)
-	requestURL := fmt.Sprintf("http://%s:%d%s?timestamp=%s&tsFile=%s",
-		podIP, port, reloadEndpoint, url.QueryEscape(timestamp), url.QueryEscape(tsFilePath))
+
+	requestURL := fmt.Sprintf("http://%s:%d%s", podIP, port, reloadEndpoint)
+
+	// Prepare JSON payload with decofile content
+	payload := map[string]interface{}{
+		"timestamp": timestamp,
+		"source":    "operator",
+		"decofile":  json.RawMessage(decofileContent), // Send the actual config
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
 
 	backoff := initialBackoff
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		log.V(1).Info("Attempting to notify pod", "pod", podName, "attempt", attempt)
+		log.V(1).Info("Attempting to notify pod", "pod", podName, "attempt", attempt, "timestamp", timestamp)
 
-		req, err := http.NewRequestWithContext(ctx, "GET", requestURL, nil)
+		req, err := http.NewRequestWithContext(ctx, "POST", requestURL, bytes.NewReader(payloadBytes))
 		if err != nil {
 			return fmt.Errorf("failed to create request: %w", err)
 		}
+		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := n.HTTPClient.Do(req)
 		if err == nil {

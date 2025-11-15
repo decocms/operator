@@ -25,47 +25,33 @@ async function loadConfig(): Promise<Record<string, unknown>> {
   return JSON.parse(content);
 }
 
-async function handleReload(expectedTimestamp?: string, tsFilePath?: string): Promise<Response> {
+async function handleReload(req: Request): Promise<Response> {
   console.log("=== RELOAD REQUEST RECEIVED ===");
-  console.log(`Reading from: ${CONFIG_DIR}`);
   console.log(`Current time: ${new Date().toISOString()}`);
   console.log(`DECO_RELEASE env: ${Deno.env.get("DECO_RELEASE") || "not set"}`);
   
-  // Long-polling: wait for timestamp file to be >= expected timestamp
-  if (expectedTimestamp && tsFilePath) {
-    console.log(`⏳ Long-polling for timestamp >= ${expectedTimestamp} (Unix seconds)`);
-    console.log(`   Timestamp file: ${tsFilePath}`);
+  let filesMap: Record<string, unknown>;
+  
+  // Try to get decofile from payload first (faster than reading file)
+  try {
+    const payload = await req.json();
+    console.log(`📦 Received payload with timestamp: ${payload.timestamp}`);
     
-    const expectedTs = parseInt(expectedTimestamp, 10);
-    const maxWaitSeconds = 120;
-    const pollIntervalMs = 2000;
-    const startTime = Date.now();
-    
-    while ((Date.now() - startTime) < maxWaitSeconds * 1000) {
-      try {
-        const fileTimestamp = await Deno.readTextFile(tsFilePath);
-        const fileTs = parseInt(fileTimestamp.trim(), 10);
-        
-        console.log(`   Current file timestamp: ${fileTs} (${new Date(fileTs * 1000).toISOString()})`);
-        
-        // Compare Unix timestamps
-        if (fileTs >= expectedTs) {
-          console.log(`✓ Timestamp satisfied! (${fileTs} >= ${expectedTs})`);
-          break;
-        }
-        
-        console.log(`   Waiting... (${Math.round((Date.now() - startTime) / 1000)}s elapsed)`);
-        await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
-      } catch (error) {
-        console.error(`   Error reading timestamp file: ${error.message}`);
-        await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
-      }
+    if (payload.decofile) {
+      filesMap = payload.decofile;
+      console.log(`✓ Using decofile from payload`);
+    } else {
+      // Fallback to reading from file
+      console.log(`⚠️  No decofile in payload, reading from disk`);
+      filesMap = await loadConfig();
     }
+  } catch {
+    // No payload or invalid JSON, read from file
+    console.log(`📁 Reading from: ${CONFIG_DIR}`);
+    filesMap = await loadConfig();
   }
   
   try {
-    // Load config (handles compression automatically)
-    const filesMap = await loadConfig();
     
     const fileNames = Object.keys(filesMap);
     console.log(`\n📦 Found ${fileNames.length} file(s) in decofile.json`);
@@ -141,10 +127,7 @@ Deno.serve({
   }
   
   if (pathname === "/.decofile/reload") {
-    // Parse long-polling parameters
-    const expectedTimestamp = url.searchParams.get("timestamp") || undefined;
-    const tsFilePath = url.searchParams.get("tsFile") || undefined;
-    return await handleReload(expectedTimestamp, tsFilePath);
+    return await handleReload(req);
   }
   
   if (pathname === "/") {

@@ -12,18 +12,27 @@ The operator will:
 
 ## Required Endpoint Implementation
 
-### Endpoint: `GET /.decofile/reload`
+### Endpoint: `POST /.decofile/reload`
 
-**Query Parameters:**
-- `timestamp` (string): Expected Unix timestamp in seconds (e.g., "1731598481")
-- `tsFile` (string): Path to the timestamp.txt file (e.g., `/app/decofile/timestamp.txt`)
+**Request Body (JSON):**
+```json
+{
+  "timestamp": "1731598481",
+  "source": "operator",
+  "decofile": {
+    "config": {"environment": "production"},
+    "data": {"message": "hello"}
+  }
+}
+```
 
 **Behavior:**
-- Long-poll: Wait until `parseInt(timestamp.txt) >= parseInt(timestamp)`
-- Max wait: 120 seconds
-- Poll interval: 2 seconds
-- Return 200 OK when condition met
-- Reload config and return success
+- Receive POST notification with decofile content
+- Apply configuration to your application
+- Return 200 OK on success
+- Return 500 on error
+
+**Note:** The decofile content is sent in the payload, so you don't need to read from disk. However, the files are still mounted for initial load and fallback.
 
 ### TypeScript/Deno Implementation
 
@@ -72,56 +81,21 @@ async function decompressBrotli(data: Uint8Array): Promise<string> {
 }
 
 // reload.ts - Reload endpoint handler
-async function waitForTimestamp(
-  expectedTimestamp: string,
-  tsFilePath: string
-): Promise<boolean> {
-  const maxWaitSeconds = 120;
-  const pollIntervalMs = 2000;
-  const startTime = Date.now();
-  
-  console.log(`⏳ Long-polling for timestamp >= ${expectedTimestamp}`);
-  
-  while ((Date.now() - startTime) < maxWaitSeconds * 1000) {
-    try {
-      const fileTimestamp = await Deno.readTextFile(tsFilePath);
-      const trimmed = fileTimestamp.trim();
-      
-      // RFC3339 timestamps are lexicographically comparable
-      if (trimmed >= expectedTimestamp) {
-        console.log(`✓ Timestamp satisfied: ${trimmed} >= ${expectedTimestamp}`);
-        return true;
-      }
-      
-      console.log(`  Waiting... (${Math.round((Date.now() - startTime) / 1000)}s elapsed)`);
-      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
-    } catch (error) {
-      console.error(`  Error reading timestamp: ${error.message}`);
-      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
-    }
-  }
-  
-  console.error(`❌ Timeout: timestamp not satisfied after ${maxWaitSeconds}s`);
-  return false;
-}
-
-async function handleReload(
-  expectedTimestamp?: string,
-  tsFilePath?: string
-): Promise<Response> {
+async function handleReload(req: Request): Promise<Response> {
   console.log("=== RELOAD REQUEST ===");
   console.log(`Timestamp: ${new Date().toISOString()}`);
   
-  // Long-poll if timestamp parameters provided
-  if (expectedTimestamp && tsFilePath) {
-    const satisfied = await waitForTimestamp(expectedTimestamp, tsFilePath);
-    if (!satisfied) {
-      return new Response("Timeout waiting for timestamp\n", { status: 504 });
-    }
+  // Parse JSON payload
+  try {
+    const payload = await req.json();
+    console.log(`📦 Received notification:`, payload);
+    console.log(`   Timestamp: ${payload.timestamp}`);
+  } catch {
+    console.log("   No payload (optional)");
   }
   
   try {
-    // Reload configuration
+    // Reload configuration from mounted files
     const config = await loadConfig();
     const fileCount = Object.keys(config).length;
     
@@ -147,9 +121,7 @@ Deno.serve({ port: 8000 }, async (req) => {
   const url = new URL(req.url);
   
   if (url.pathname === "/.decofile/reload") {
-    const expectedTimestamp = url.searchParams.get("timestamp") || undefined;
-    const tsFilePath = url.searchParams.get("tsFile") || undefined;
-    return await handleReload(expectedTimestamp, tsFilePath);
+    return await handleReload(req);
   }
   
   if (url.pathname === "/health") {
