@@ -35,8 +35,8 @@ import (
 )
 
 const (
-	// Compression threshold: 2.5MB (ConfigMap limit is 3MB, leave buffer)
-	compressionThreshold = 2.5 * 1024 * 1024
+	// Compression threshold: 900kb (ConfigMap limit is 1MB, leave buffer)
+	compressionThreshold = 0.9 * 1024 * 1024
 )
 
 // DecofileReconciler reconciles a Decofile object
@@ -117,7 +117,7 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	var configData map[string]string
 	var contentKey string // "decofile.json" or "decofile.bin"
 
-	if len(jsonContent) > compressionThreshold {
+	if float64(len(jsonContent)) > compressionThreshold {
 		// Compress large content with Brotli
 		compressed, err := compressBrotli([]byte(jsonContent))
 		if err != nil {
