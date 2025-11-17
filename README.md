@@ -30,6 +30,7 @@ The Deco CMS operator manages **Decofile** custom resources, which represent con
 - ✅ **Smart Delay**: 60-second wait for kubelet sync
 - ✅ **Retry Logic**: Exponential backoff with 5 attempts
 - ✅ **Direct Pod Communication**: HTTP calls to reload endpoints
+- ✅ **Token Authentication**: UUID tokens for secure reload requests
 
 ### Production Ready
 - ✅ **Multi-Instance Ready**: Built-in leader election for high availability
@@ -94,7 +95,7 @@ kubectl logs -n operator-system -l control-plane=controller-manager -f
 - cert-manager (for webhook TLS)
 - Knative Serving (for injection features)
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment options and [HELM.md](HELM.md) for complete Helm documentation.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment options, [HELM.md](HELM.md) for complete Helm documentation, and [docs/RELOAD_AUTHENTICATION.md](docs/RELOAD_AUTHENTICATION.md) for securing reload endpoints.
 
 ## Usage
 
@@ -296,7 +297,8 @@ Manages the lifecycle of Decofile custom resources:
 
 **Change Notifications:**
 - Discovers pods via `deco.sites/decofile` label
-- Calls `/.decofile/reload?delay=60000` on each pod
+- Calls `/.decofile/reload` on each pod with token authentication
+- Sends `Authorization: Token <uuid>` header for security
 - Waits for pods to confirm reload before completing reconciliation
 
 ### 2. Mutating Webhook

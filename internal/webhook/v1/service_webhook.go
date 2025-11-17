@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -31,6 +32,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
+)
+
+const (
+	appContainerName       = "app"
+	reloadTokenEnvVar      = "DECO_RELEASE_RELOAD_TOKEN"
+	decoReleaseEnvVar      = "DECO_RELEASE"
+	decofileInjectAnnot    = "deco.sites/decofile-inject"
+	decofileMountPathAnnot = "deco.sites/decofile-mount-path"
+	decofileLabel          = "deco.sites/decofile"
 )
 
 // nolint:unused
@@ -75,7 +85,7 @@ func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object
 		return nil
 	}
 
-	injectAnnotation, exists := service.Annotations["deco.sites/decofile-inject"]
+	injectAnnotation, exists := service.Annotations[decofileInjectAnnot]
 	if !exists || injectAnnotation == "" {
 		return nil
 	}
@@ -116,7 +126,7 @@ func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object
 
 	// Get mount path from annotation or use default directory
 	mountDir := "/app/decofile"
-	if customPath, exists := service.Annotations["deco.sites/decofile-mount-path"]; exists {
+	if customPath, exists := service.Annotations[decofileMountPathAnnot]; exists {
 		mountDir = customPath
 	}
 
@@ -183,7 +193,7 @@ func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object
 	// Find the "app" container or use first container
 	var targetContainerIdx int
 	for i, container := range service.Spec.Template.Spec.Containers {
-		if container.Name == "app" {
+		if container.Name == appContainerName {
 			targetContainerIdx = i
 			break
 		}
@@ -215,7 +225,7 @@ func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object
 	// Add DECO_RELEASE environment variable
 	envExists := false
 	for i, env := range service.Spec.Template.Spec.PodSpec.Containers[targetContainerIdx].Env {
-		if env.Name == "DECO_RELEASE" {
+		if env.Name == decoReleaseEnvVar {
 			// Update existing env var
 			service.Spec.Template.Spec.PodSpec.Containers[targetContainerIdx].Env[i].Value = decoReleaseValue
 			envExists = true
@@ -227,8 +237,30 @@ func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object
 		service.Spec.Template.Spec.PodSpec.Containers[targetContainerIdx].Env = append(
 			service.Spec.Template.Spec.PodSpec.Containers[targetContainerIdx].Env,
 			corev1.EnvVar{
-				Name:  "DECO_RELEASE",
+				Name:  decoReleaseEnvVar,
 				Value: decoReleaseValue,
+			},
+		)
+	}
+
+	// Generate and add DECO_RELEASE_RELOAD_TOKEN environment variable
+	reloadToken := uuid.New().String()
+	tokenEnvExists := false
+	for i, env := range service.Spec.Template.Spec.PodSpec.Containers[targetContainerIdx].Env {
+		if env.Name == reloadTokenEnvVar {
+			// Update existing env var with new token
+			service.Spec.Template.Spec.PodSpec.Containers[targetContainerIdx].Env[i].Value = reloadToken
+			tokenEnvExists = true
+			break
+		}
+	}
+
+	if !tokenEnvExists {
+		service.Spec.Template.Spec.PodSpec.Containers[targetContainerIdx].Env = append(
+			service.Spec.Template.Spec.PodSpec.Containers[targetContainerIdx].Env,
+			corev1.EnvVar{
+				Name:  reloadTokenEnvVar,
+				Value: reloadToken,
 			},
 		)
 	}
@@ -237,7 +269,7 @@ func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object
 	if service.Spec.Template.Labels == nil {
 		service.Spec.Template.Labels = make(map[string]string)
 	}
-	service.Spec.Template.Labels["deco.sites/decofile"] = decofileName
+	service.Spec.Template.Labels[decofileLabel] = decofileName
 
 	servicelog.Info("Successfully injected Decofile into Service", "service", service.Name, "decofile", decofileName, "configmap", decofile.Status.ConfigMapName)
 

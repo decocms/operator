@@ -39,6 +39,8 @@ const (
 	defaultMountPath      = "/app/decofile"
 	maxNotificationTime   = 2 * time.Minute // 2 min for entire batch
 	notificationBatchSize = 30              // Parallel notification batch size
+	appContainerName      = "app"
+	reloadTokenEnvVar     = "DECO_RELEASE_RELOAD_TOKEN"
 )
 
 // Notifier handles notifying pods about ConfigMap changes
@@ -55,6 +57,20 @@ func NewNotifier(k8sClient client.Client) *Notifier {
 			Timeout: reloadTimeout,
 		},
 	}
+}
+
+// extractReloadToken extracts the reload token from the "app" container's environment variables
+func extractReloadToken(pod *corev1.Pod) string {
+	for _, container := range pod.Spec.Containers {
+		if container.Name == appContainerName {
+			for _, env := range container.Env {
+				if env.Name == reloadTokenEnvVar {
+					return env.Value
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // NotifyPodsForDecofile notifies all pods using the given Decofile
@@ -130,14 +146,8 @@ func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, decofil
 				return
 			}
 
-			// Get port from container
-			port := int32(8000)
-			if len(pod.Spec.Containers) > 0 && len(pod.Spec.Containers[0].Ports) > 0 {
-				port = pod.Spec.Containers[0].Ports[0].ContainerPort
-			}
-
 			// Notify pod
-			err = n.notifyPodWithRetry(notifyCtx, name, pod.Status.PodIP, port, timestamp, decofileContent)
+			err = n.notifyPodWithRetry(notifyCtx, pod, timestamp, decofileContent)
 			resultChan <- notifyResult{name, err}
 		}(podName)
 	}
@@ -180,10 +190,22 @@ func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, decofil
 
 // notifyPodWithRetry attempts to notify a single pod with exponential backoff retry
 // POSTs JSON payload containing the decofile content
-func (n *Notifier) notifyPodWithRetry(ctx context.Context, podName, podIP string, port int32, timestamp, decofileContent string) error {
+func (n *Notifier) notifyPodWithRetry(ctx context.Context, pod *corev1.Pod, timestamp, decofileContent string) error {
 	log := logf.FromContext(ctx)
 
-	requestURL := fmt.Sprintf("http://%s:%d%s", podIP, port, reloadEndpoint)
+	// Get port from container
+	port := int32(8000)
+	if len(pod.Spec.Containers) > 0 && len(pod.Spec.Containers[0].Ports) > 0 {
+		port = pod.Spec.Containers[0].Ports[0].ContainerPort
+	}
+
+	requestURL := fmt.Sprintf("http://%s:%d%s", pod.Status.PodIP, port, reloadEndpoint)
+
+	// Extract reload token from pod
+	token := extractReloadToken(pod)
+	if token == "" {
+		log.V(1).Info("No reload token found in pod, skipping authorization", "pod", pod.Name)
+	}
 
 	// Prepare JSON payload with decofile content
 	payload := map[string]interface{}{
@@ -199,7 +221,7 @@ func (n *Notifier) notifyPodWithRetry(ctx context.Context, podName, podIP string
 	backoff := initialBackoff
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		log.V(1).Info("Attempting to notify pod", "pod", podName, "attempt", attempt, "timestamp", timestamp)
+		log.V(1).Info("Attempting to notify pod", "pod", pod.Name, "attempt", attempt, "timestamp", timestamp)
 
 		req, err := http.NewRequestWithContext(ctx, "POST", requestURL, bytes.NewReader(payloadBytes))
 		if err != nil {
@@ -207,18 +229,23 @@ func (n *Notifier) notifyPodWithRetry(ctx context.Context, podName, podIP string
 		}
 		req.Header.Set("Content-Type", "application/json")
 
+		// Add authorization header if token exists
+		if token != "" {
+			req.Header.Set("Authorization", fmt.Sprintf("Token %s", token))
+		}
+
 		resp, err := n.HTTPClient.Do(req)
 		if err == nil {
 			defer func() {
 				if closeErr := resp.Body.Close(); closeErr != nil {
-					log.Error(closeErr, "Failed to close response body", "pod", podName)
+					log.Error(closeErr, "Failed to close response body", "pod", pod.Name)
 				}
 			}()
 			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-				log.V(1).Info("Pod notified successfully", "pod", podName, "status", resp.StatusCode)
+				log.V(1).Info("Pod notified successfully", "pod", pod.Name, "status", resp.StatusCode)
 				return nil
 			}
-			log.V(1).Info("Pod returned non-success status", "pod", podName, "status", resp.StatusCode)
+			log.V(1).Info("Pod returned non-success status", "pod", pod.Name, "status", resp.StatusCode)
 			err = fmt.Errorf("pod returned status %d", resp.StatusCode)
 		}
 
@@ -228,7 +255,7 @@ func (n *Notifier) notifyPodWithRetry(ctx context.Context, podName, podIP string
 		}
 
 		// Wait before retrying with exponential backoff
-		log.V(1).Info("Retrying after backoff", "pod", podName, "backoff", backoff, "error", err)
+		log.V(1).Info("Retrying after backoff", "pod", pod.Name, "backoff", backoff, "error", err)
 		select {
 		case <-time.After(backoff):
 			backoff *= 2
