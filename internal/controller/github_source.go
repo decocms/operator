@@ -112,6 +112,13 @@ func (s *GitHubSource) Retrieve(ctx context.Context) (string, error) {
 
 		// Strip .json extension from filename
 		cleanFilename := strings.TrimSuffix(decodedFilename, ".json")
+
+		// Validate that content is valid JSON before adding
+		if !json.Valid(content) {
+			log.Info("Skipping file with malformed JSON", "filename", cleanFilename)
+			continue
+		}
+
 		filesJSON[cleanFilename] = json.RawMessage(content)
 	}
 
