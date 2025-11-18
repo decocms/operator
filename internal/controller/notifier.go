@@ -36,9 +36,8 @@ const (
 	maxRetries            = 3                // 3 attempts per pod
 	initialBackoff        = 2 * time.Second
 	decofileLabel         = "deco.sites/decofile"
-	defaultMountPath      = "/app/decofile"
 	maxNotificationTime   = 2 * time.Minute // 2 min for entire batch
-	notificationBatchSize = 30              // Parallel notification batch size
+	notificationBatchSize = 10              // Parallel notification batch size (reduced to save memory)
 	appContainerName      = "app"
 	reloadTokenEnvVar     = "DECO_RELEASE_RELOAD_TOKEN"
 )
@@ -108,6 +107,18 @@ func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, decofil
 
 	log.Info("Starting parallel pod notifications", "totalPods", len(podNames), "batchSize", notificationBatchSize)
 
+	// Prepare JSON payload once (reused across all pods to avoid memory duplication)
+	payload := map[string]interface{}{
+		"timestamp": timestamp,
+		"source":    "operator",
+		"decofile":  json.RawMessage(decofileContent),
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
+	log.V(1).Info("Marshaled notification payload", "size", len(payloadBytes))
+
 	// Notify pods in parallel batches
 	type notifyResult struct {
 		podName string
@@ -147,7 +158,7 @@ func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, decofil
 			}
 
 			// Notify pod
-			err = n.notifyPodWithRetry(notifyCtx, pod, timestamp, decofileContent)
+			err = n.notifyPodWithRetry(notifyCtx, pod, timestamp, payloadBytes)
 			resultChan <- notifyResult{name, err}
 		}(podName)
 	}
@@ -190,7 +201,7 @@ func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, decofil
 
 // notifyPodWithRetry attempts to notify a single pod with exponential backoff retry
 // POSTs JSON payload containing the decofile content
-func (n *Notifier) notifyPodWithRetry(ctx context.Context, pod *corev1.Pod, timestamp, decofileContent string) error {
+func (n *Notifier) notifyPodWithRetry(ctx context.Context, pod *corev1.Pod, timestamp string, payloadBytes []byte) error {
 	log := logf.FromContext(ctx)
 
 	// Get port from container
@@ -205,17 +216,6 @@ func (n *Notifier) notifyPodWithRetry(ctx context.Context, pod *corev1.Pod, time
 	token := extractReloadToken(pod)
 	if token == "" {
 		log.V(1).Info("No reload token found in pod, skipping authorization", "pod", pod.Name)
-	}
-
-	// Prepare JSON payload with decofile content
-	payload := map[string]interface{}{
-		"timestamp": timestamp,
-		"source":    "operator",
-		"decofile":  json.RawMessage(decofileContent), // Send the actual config
-	}
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
 	backoff := initialBackoff

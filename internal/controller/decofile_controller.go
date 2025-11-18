@@ -84,9 +84,23 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			testCM := &corev1.ConfigMap{}
 			err := r.Get(ctx, client.ObjectKey{Name: configMapName, Namespace: decofile.Namespace}, testCM)
 			if err == nil {
-				// ConfigMap exists and commit unchanged - skip download
-				shouldRetrieve = false
-				log.V(1).Info("GitHub commit unchanged and ConfigMap exists, skipping download", "commit", decofile.Spec.GitHub.Commit)
+				// Check if notification is in progress or failed
+				hasIncompleteNotification := false
+				for _, cond := range decofile.Status.Conditions {
+					if cond.Type == "PodsNotified" &&
+						(cond.Status == metav1.ConditionUnknown || cond.Status == metav1.ConditionFalse) {
+						hasIncompleteNotification = true
+						break
+					}
+				}
+
+				if !hasIncompleteNotification {
+					// ConfigMap exists, commit unchanged, and no incomplete notifications - skip download
+					shouldRetrieve = false
+					log.V(1).Info("GitHub commit unchanged, ConfigMap exists, and no incomplete notifications", "commit", decofile.Spec.GitHub.Commit)
+				} else {
+					log.Info("Incomplete notification detected, continuing reconciliation to retry notification")
+				}
 			}
 		}
 	}
