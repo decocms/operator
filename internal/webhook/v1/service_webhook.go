@@ -27,7 +27,6 @@ import (
 	servingknativedevv1 "knative.dev/serving/pkg/apis/serving/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -42,16 +41,13 @@ const (
 	decofileInjectAnnot    = "deco.sites/decofile-inject"
 	decofileMountPathAnnot = "deco.sites/decofile-mount-path"
 	deploymentIdLabel      = "app.deco/deploymentId"
-	decofileFinalizerName  = "decofile.deco.sites/finalizer"
 )
 
 // nolint:unused
 // log is for logging in this package.
 var servicelog = logf.Log.WithName("service-resource")
 
-// +kubebuilder:rbac:groups=deco.sites,resources=decofiles,verbs=get;list;watch;delete
-// +kubebuilder:rbac:groups=serving.knative.dev,resources=services,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=serving.knative.dev,resources=services/finalizers,verbs=update
+// +kubebuilder:rbac:groups=deco.sites,resources=decofiles,verbs=get;list;watch
 
 // SetupServiceWebhookWithManager registers the webhook for Service in the manager.
 func SetupServiceWebhookWithManager(mgr ctrl.Manager) error {
@@ -75,27 +71,6 @@ type ServiceCustomDefaulter struct {
 }
 
 var _ webhook.CustomDefaulter = &ServiceCustomDefaulter{}
-
-// handleDeletion handles Service deletion and finalizer cleanup
-func (d *ServiceCustomDefaulter) handleDeletion(ctx context.Context, service *servingknativedevv1.Service) error {
-	if !controllerutil.ContainsFinalizer(service, decofileFinalizerName) {
-		return nil
-	}
-
-	// Cleanup: delete associated Decofile(s)
-	if err := d.cleanupDecofiles(ctx, service); err != nil {
-		servicelog.Error(err, "Failed to cleanup Decofiles", "service", service.Name)
-		return err
-	}
-
-	// Remove finalizer
-	controllerutil.RemoveFinalizer(service, decofileFinalizerName)
-	if err := d.Client.Update(ctx, service); err != nil {
-		return fmt.Errorf("failed to remove finalizer: %w", err)
-	}
-	servicelog.Info("Removed finalizer from Service", "service", service.Name)
-	return nil
-}
 
 // getDeploymentId extracts deploymentId from Service labels
 func (d *ServiceCustomDefaulter) getDeploymentId(service *servingknativedevv1.Service) (string, error) {
@@ -283,11 +258,6 @@ func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object
 	}
 	servicelog.Info("Mutating Service", "name", service.GetName())
 
-	// Handle finalizer logic for deletion
-	if !service.DeletionTimestamp.IsZero() {
-		return d.handleDeletion(ctx, service)
-	}
-
 	// Check for deco.sites/decofile-inject annotation (boolean)
 	if service.Annotations == nil {
 		return nil
@@ -304,15 +274,19 @@ func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object
 		return err
 	}
 
-	// Find matching Decofile
+	// Find matching Decofile (non-blocking - allow Service creation even if not found)
 	decofile, err := d.findDecofileByDeploymentId(ctx, service.Namespace, deploymentId)
 	if err != nil {
-		return err
+		servicelog.Info("Decofile not found, skipping injection (Service will be created without Decofile)",
+			"service", service.Name, "deploymentId", deploymentId, "reason", err.Error())
+		return nil // Allow Service creation
 	}
 
-	// Check if ConfigMap is ready
+	// Check if ConfigMap is ready (non-blocking)
 	if decofile.Status.ConfigMapName == "" {
-		return fmt.Errorf("decofile %s does not have a ConfigMap created yet", decofile.Name)
+		servicelog.Info("Decofile ConfigMap not ready yet, skipping injection",
+			"service", service.Name, "decofile", decofile.Name)
+		return nil // Allow Service creation
 	}
 
 	// Get mount path from annotation or use default directory
@@ -326,51 +300,14 @@ func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object
 		return err
 	}
 
-	// Add finalizer to Service for cleanup
-	if !controllerutil.ContainsFinalizer(service, decofileFinalizerName) {
-		controllerutil.AddFinalizer(service, decofileFinalizerName)
-		servicelog.Info("Added finalizer to Service", "service", service.Name)
+	// Explicitly add deploymentId label to pod template for notification
+	// (Don't rely on Knative label propagation)
+	if service.Spec.Template.Labels == nil {
+		service.Spec.Template.Labels = make(map[string]string)
 	}
+	service.Spec.Template.Labels[deploymentIdLabel] = deploymentId
 
 	servicelog.Info("Successfully injected Decofile into Service", "service", service.Name, "deploymentId", deploymentId, "configmap", decofile.Status.ConfigMapName)
-
-	return nil
-}
-
-// cleanupDecofiles deletes all Decofiles associated with the Service's deploymentId
-func (d *ServiceCustomDefaulter) cleanupDecofiles(ctx context.Context, service *servingknativedevv1.Service) error {
-	// Get deploymentId from Service labels
-	if service.Labels == nil {
-		return nil // No labels, nothing to clean up
-	}
-
-	deploymentId, exists := service.Labels[deploymentIdLabel]
-	if !exists || deploymentId == "" {
-		return nil // No deploymentId, nothing to clean up
-	}
-
-	// List all Decofiles in namespace
-	decofileList := &decositesv1alpha1.DecofileList{}
-	err := d.Client.List(ctx, decofileList, client.InNamespace(service.Namespace))
-	if err != nil {
-		return fmt.Errorf("failed to list Decofiles: %w", err)
-	}
-
-	// Delete Decofiles with matching deploymentId
-	for i := range decofileList.Items {
-		df := &decofileList.Items[i]
-		dfDeploymentId := df.Spec.DeploymentId
-		if dfDeploymentId == "" {
-			dfDeploymentId = df.Name
-		}
-		if dfDeploymentId == deploymentId {
-			servicelog.Info("Deleting Decofile", "decofile", df.Name, "deploymentId", deploymentId)
-			if err := d.Client.Delete(ctx, df); err != nil {
-				servicelog.Error(err, "Failed to delete Decofile", "decofile", df.Name)
-				// Continue with other Decofiles even if one fails
-			}
-		}
-	}
 
 	return nil
 }

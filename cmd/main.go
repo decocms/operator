@@ -219,6 +219,10 @@ func main() {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Service")
 			os.Exit(1)
 		}
+		if err := webhookv1.SetupDecofileWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "Decofile")
+			os.Exit(1)
+		}
 	}
 	// +kubebuilder:scaffold:builder
 

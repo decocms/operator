@@ -58,12 +58,4 @@ rules:
   verbs:
   - get
   - list
-  - patch
-  - update
   - watch
-- apiGroups:
-  - serving.knative.dev
-  resources:
-  - services/finalizers
-  verbs:
-  - update
