@@ -39,10 +39,10 @@ type DecofileSpec struct {
 	// +optional
 	GitHub *GitHubSource `json:"github,omitempty"`
 
-	// Silent disables pod notifications when ConfigMap changes
-	// If true, pods will not be notified and must poll or restart to get updates
+	// DeploymentId is used for pod label matching (defaults to metadata.name if absent)
+	// Pods are queried using the app.deco/deploymentId label
 	// +optional
-	Silent bool `json:"silent,omitempty"`
+	DeploymentId string `json:"deploymentId,omitempty"`
 }
 
 // InlineSource contains direct JSON configuration data
