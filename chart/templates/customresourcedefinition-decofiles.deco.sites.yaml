@@ -38,6 +38,11 @@ spec:
           spec:
             description: DecofileSpec defines the desired state of Decofile.
             properties:
+              deploymentId:
+                description: |-
+                  DeploymentId is used for pod label matching (defaults to metadata.name if absent)
+                  Pods are queried using the app.deco/deploymentId label
+                type: string
               github:
                 description: GitHub contains repository information (used when source=github)
                 properties:
@@ -78,11 +83,6 @@ spec:
                 required:
                 - value
                 type: object
-              silent:
-                description: |-
-                  Silent disables pod notifications when ConfigMap changes
-                  If true, pods will not be notified and must poll or restart to get updates
-                type: boolean
               source:
                 description: Source specifies where to get the configuration data
                 enum:

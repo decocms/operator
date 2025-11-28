@@ -235,8 +235,14 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
+	// Determine deploymentId (default to decofile name if not specified)
+	deploymentId := decofile.Spec.DeploymentId
+	if deploymentId == "" {
+		deploymentId = decofile.Name
+	}
+
 	// Reset PodsNotified condition when change is detected (before notifying)
-	if dataChanged && !decofile.Spec.Silent {
+	if dataChanged {
 		// Set condition to InProgress before attempting notification
 		tempDecofile := &decositesv1alpha1.Decofile{}
 		err = r.Get(ctx, req.NamespacedName, tempDecofile)
@@ -262,28 +268,23 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
-	// Notify pods if ConfigMap data changed (unless silent mode is enabled)
+	// Notify pods if ConfigMap data changed
 	var podsNotified bool
 	var notificationError string
 
 	if dataChanged {
-		if decofile.Spec.Silent {
-			log.Info("ConfigMap data changed but notifications disabled (silent mode)", "timestamp", timestamp)
-			podsNotified = false
-		} else {
-			log.Info("ConfigMap data changed, notifying pods", "timestamp", timestamp)
+		log.Info("ConfigMap data changed, notifying pods", "timestamp", timestamp, "deploymentId", deploymentId)
 
-			notifier := NewNotifier(r.Client)
-			err = notifier.NotifyPodsForDecofile(ctx, decofile.Namespace, decofile.Name, timestamp, jsonContent)
-			if err != nil {
-				log.Error(err, "Failed to notify pods", "decofile", decofile.Name)
-				notificationError = err.Error()
-				podsNotified = false
-				// Don't return error - update status with failure condition
-			} else {
-				log.Info("Successfully notified all pods", "timestamp", timestamp)
-				podsNotified = true
-			}
+		notifier := NewNotifier(r.Client)
+		err = notifier.NotifyPodsForDecofile(ctx, decofile.Namespace, deploymentId, timestamp, jsonContent)
+		if err != nil {
+			log.Error(err, "Failed to notify pods", "deploymentId", deploymentId)
+			notificationError = err.Error()
+			podsNotified = false
+			// Don't return error - update status with failure condition
+		} else {
+			log.Info("Successfully notified all pods", "timestamp", timestamp, "deploymentId", deploymentId)
+			podsNotified = true
 		}
 	}
 
@@ -316,8 +317,8 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 	updateCondition(freshDecofile, readyCondition)
 
-	// Update PodsNotified condition (only when not silent)
-	if !freshDecofile.Spec.Silent && dataChanged {
+	// Update PodsNotified condition
+	if dataChanged {
 		var podsNotifiedCondition metav1.Condition
 
 		// Include commit or timestamp in message for matching
@@ -357,7 +358,7 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	log.Info("Successfully reconciled Decofile")
 
 	// Return error if notifications failed (will requeue)
-	if dataChanged && !freshDecofile.Spec.Silent && !podsNotified {
+	if dataChanged && !podsNotified {
 		return ctrl.Result{}, fmt.Errorf("failed to notify pods: %s", notificationError)
 	}
 

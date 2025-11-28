@@ -35,7 +35,7 @@ const (
 	reloadTimeout         = 30 * time.Second // 30s per pod (simple POST, no long-polling)
 	maxRetries            = 3                // 3 attempts per pod
 	initialBackoff        = 2 * time.Second
-	decofileLabel         = "deco.sites/decofile"
+	deploymentIdLabel     = "app.deco/deploymentId"
 	maxNotificationTime   = 2 * time.Minute // 2 min for entire batch
 	notificationBatchSize = 10              // Parallel notification batch size (reduced to save memory)
 	appContainerName      = "app"
@@ -72,30 +72,30 @@ func extractReloadToken(pod *corev1.Pod) string {
 	return ""
 }
 
-// NotifyPodsForDecofile notifies all pods using the given Decofile
+// NotifyPodsForDecofile notifies all pods using the given deploymentId
 // that the ConfigMap has changed and they should reload.
 // Uses parallel batch processing with 2-minute timeout.
-func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, decofileName, timestamp, decofileContent string) error {
+func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, deploymentId, timestamp, decofileContent string) error {
 	log := logf.FromContext(ctx)
 
-	log.Info("Notifying pods for Decofile", "decofile", decofileName, "namespace", namespace)
+	log.Info("Notifying pods for deploymentId", "deploymentId", deploymentId, "namespace", namespace)
 
 	// Create timeout context for entire operation
 	notifyCtx, cancel := context.WithTimeout(ctx, maxNotificationTime)
 	defer cancel()
 
-	// List pods with the decofile label
+	// List pods with the deploymentId label
 	podList := &corev1.PodList{}
 	err := n.Client.List(notifyCtx, podList,
 		client.InNamespace(namespace),
-		client.MatchingLabels{decofileLabel: decofileName})
+		client.MatchingLabels{deploymentIdLabel: deploymentId})
 
 	if err != nil {
-		return fmt.Errorf("failed to list pods for decofile %s: %w", decofileName, err)
+		return fmt.Errorf("failed to list pods for deploymentId %s: %w", deploymentId, err)
 	}
 
 	if len(podList.Items) == 0 {
-		log.V(1).Info("No pods found for Decofile", "decofile", decofileName)
+		log.V(1).Info("No pods found for deploymentId", "deploymentId", deploymentId)
 		return nil
 	}
 

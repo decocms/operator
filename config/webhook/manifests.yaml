@@ -36,6 +36,25 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /validate-deco-sites-v1alpha1-decofile
+  failurePolicy: Fail
+  name: vdecofile.kb.io
+  rules:
+  - apiGroups:
+    - deco.sites
+    apiVersions:
+    - v1alpha1
+    operations:
+    - DELETE
+    resources:
+    - decofiles
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /validate-serving-knative-dev-v1-service
   failurePolicy: Fail
   name: vservice-v1.kb.io
