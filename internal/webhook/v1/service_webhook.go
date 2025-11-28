@@ -282,13 +282,6 @@ func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object
 		return nil // Allow Service creation
 	}
 
-	// Check if ConfigMap is ready (non-blocking)
-	if decofile.Status.ConfigMapName == "" {
-		servicelog.Info("Decofile ConfigMap not ready yet, skipping injection",
-			"service", service.Name, "decofile", decofile.Name)
-		return nil // Allow Service creation
-	}
-
 	// Get mount path from annotation or use default directory
 	mountDir := "/app/decofile"
 	if customPath, exists := service.Annotations[decofileMountPathAnnot]; exists {
