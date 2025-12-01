@@ -112,6 +112,11 @@ type Decofile struct {
 	Status DecofileStatus `json:"status,omitempty"`
 }
 
+// ConfigMapName returns the deterministic name of the ConfigMap for this Decofile
+func (d *Decofile) ConfigMapName() string {
+	return "decofile-" + d.Name
+}
+
 // +kubebuilder:object:root=true
 
 // DecofileList contains a list of Decofile.

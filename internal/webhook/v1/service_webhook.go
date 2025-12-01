@@ -110,10 +110,14 @@ func (d *ServiceCustomDefaulter) findDecofileByDeploymentId(ctx context.Context,
 
 // injectDecofileVolume injects the Decofile ConfigMap as a volume into the Service
 func (d *ServiceCustomDefaulter) injectDecofileVolume(ctx context.Context, service *servingknativedevv1.Service, decofile *decositesv1alpha1.Decofile, mountDir string) error {
+	// Get ConfigMap name deterministically
+	// This ensures the name is always available, even if the Decofile hasn't been reconciled yet
+	configMapName := decofile.ConfigMapName()
+
 	// Check if ConfigMap is compressed to set correct file extension
 	configMap := &corev1.ConfigMap{}
 	err := d.Client.Get(ctx, types.NamespacedName{
-		Name:      decofile.Status.ConfigMapName,
+		Name:      configMapName,
 		Namespace: service.Namespace,
 	}, configMap)
 
@@ -133,7 +137,7 @@ func (d *ServiceCustomDefaulter) injectDecofileVolume(ctx context.Context, servi
 	}
 
 	// Add or update volume
-	d.addOrUpdateVolume(service, decofile.Status.ConfigMapName)
+	d.addOrUpdateVolume(service, configMapName)
 
 	// Find target container and add volumeMount + env vars
 	if len(service.Spec.Template.Spec.Containers) == 0 {
@@ -300,7 +304,7 @@ func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object
 	}
 	service.Spec.Template.Labels[deploymentIdLabel] = deploymentId
 
-	servicelog.Info("Successfully injected Decofile into Service", "service", service.Name, "deploymentId", deploymentId, "configmap", decofile.Status.ConfigMapName)
+	servicelog.Info("Successfully injected Decofile into Service", "service", service.Name, "deploymentId", deploymentId, "configmap", decofile.ConfigMapName())
 
 	return nil
 }

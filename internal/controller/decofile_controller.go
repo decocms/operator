@@ -73,7 +73,7 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// Define the ConfigMap name
-	configMapName := fmt.Sprintf("decofile-%s", decofile.Name)
+	configMapName := decofile.ConfigMapName()
 
 	// For GitHub source, check if we need to re-download based on commit
 	shouldRetrieve := true
