@@ -34,11 +34,6 @@ import (
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
 )
 
-const (
-	// Compression threshold: 900kb (ConfigMap limit is 1MB, leave buffer)
-	compressionThreshold = 0.9 * 1024 * 1024
-)
-
 // DecofileReconciler reconciles a Decofile object
 type DecofileReconciler struct {
 	client.Client
@@ -127,35 +122,23 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	sourceType := source.SourceType()
 
-	// Prepare ConfigMap data with optional compression
-	var configData map[string]string
-	var contentKey string // "decofile.json" or "decofile.bin"
-
-	if float64(len(jsonContent)) > compressionThreshold {
-		// Compress large content with Brotli
-		compressed, err := compressBrotli([]byte(jsonContent))
-		if err != nil {
-			log.Error(err, "Failed to compress config")
-			return ctrl.Result{}, fmt.Errorf("failed to compress config: %w", err)
-		}
-
-		configData = map[string]string{
-			"decofile.bin": base64.StdEncoding.EncodeToString(compressed),
-		}
-		contentKey = "decofile.bin"
-
-		compressionRatio := float64(len(compressed)) / float64(len(jsonContent)) * 100
-		log.Info("Compressed large config",
-			"originalSize", len(jsonContent),
-			"compressedSize", len(compressed),
-			"ratio", fmt.Sprintf("%.1f%%", compressionRatio))
-	} else {
-		// Store uncompressed for small configs
-		configData = map[string]string{
-			"decofile.json": jsonContent,
-		}
-		contentKey = "decofile.json"
+	// Always compress content with Brotli for consistency
+	compressed, err := compressBrotli([]byte(jsonContent))
+	if err != nil {
+		log.Error(err, "Failed to compress config")
+		return ctrl.Result{}, fmt.Errorf("failed to compress config: %w", err)
 	}
+
+	configData := map[string]string{
+		"decofile.bin": base64.StdEncoding.EncodeToString(compressed),
+	}
+	contentKey := "decofile.bin"
+
+	compressionRatio := float64(len(compressed)) / float64(len(jsonContent)) * 100
+	log.Info("Compressed config with Brotli",
+		"originalSize", len(jsonContent),
+		"compressedSize", len(compressed),
+		"ratio", fmt.Sprintf("%.1f%%", compressionRatio))
 
 	// Check if the ConfigMap already exists
 	found := &corev1.ConfigMap{}
@@ -196,22 +179,8 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	} else {
 		// ConfigMap exists - check if content changed
-		// Determine what key the existing ConfigMap uses
-		var existingKey string
-		if _, hasBin := found.Data["decofile.bin"]; hasBin {
-			existingKey = "decofile.bin"
-		} else {
-			existingKey = "decofile.json"
-		}
-
-		// Check if format changed (compressed <-> uncompressed) or content changed
-		formatChanged := existingKey != contentKey
-		contentChanged := found.Data[existingKey] != configData[contentKey]
-		dataChanged = formatChanged || contentChanged
-
-		if formatChanged {
-			log.Info("ConfigMap format changed", "from", existingKey, "to", contentKey)
-		}
+		contentChanged := found.Data[contentKey] != configData[contentKey]
+		dataChanged = contentChanged
 
 		if dataChanged {
 			// Content changed - update with new timestamp (Unix seconds)

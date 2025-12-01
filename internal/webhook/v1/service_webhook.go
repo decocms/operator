@@ -23,7 +23,6 @@ import (
 	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	servingknativedevv1 "knative.dev/serving/pkg/apis/serving/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -114,22 +113,9 @@ func (d *ServiceCustomDefaulter) injectDecofileVolume(ctx context.Context, servi
 	// This ensures the name is always available, even if the Decofile hasn't been reconciled yet
 	configMapName := decofile.ConfigMapName()
 
-	// Check if ConfigMap is compressed to set correct file extension
-	configMap := &corev1.ConfigMap{}
-	err := d.Client.Get(ctx, types.NamespacedName{
-		Name:      configMapName,
-		Namespace: service.Namespace,
-	}, configMap)
-
-	fileExtension := "json"
-	if err == nil {
-		if _, hasCompressed := configMap.Data["decofile.bin"]; hasCompressed {
-			fileExtension = "bin"
-		}
-	}
-
 	// Create DECO_RELEASE environment variable
-	decoReleaseValue := fmt.Sprintf("file://%s/decofile.%s", mountDir, fileExtension)
+	// Always use .bin since we always compress with Brotli
+	decoReleaseValue := fmt.Sprintf("file://%s/decofile.bin", mountDir)
 
 	// Ensure volumes array exists
 	if service.Spec.Template.Spec.Volumes == nil {
