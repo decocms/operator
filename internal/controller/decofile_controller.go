@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net/http"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -38,6 +39,9 @@ import (
 type DecofileReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	// HTTPClient is a shared HTTP client for pod notifications.
+	// It should be created once and reused to prevent connection leaks.
+	HTTPClient *http.Client
 }
 
 // +kubebuilder:rbac:groups=deco.sites,resources=decofiles,verbs=get;list;watch;create;update;patch;delete
@@ -51,9 +55,13 @@ type DecofileReconciler struct {
 // move the current state of the cluster closer to the desired state.
 // nolint:gocyclo
 func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	reconcileStart := time.Now()
 	log := logf.FromContext(ctx)
 
+	log.Info("Starting reconciliation", "decofile", req.NamespacedName)
+
 	// Fetch the Decofile instance
+	fetchStart := time.Now()
 	decofile := &decositesv1alpha1.Decofile{}
 	err := r.Get(ctx, req.NamespacedName, decofile)
 	if err != nil {
@@ -66,6 +74,8 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		log.Error(err, "Failed to get Decofile")
 		return ctrl.Result{}, err
 	}
+
+	log.V(1).Info("Fetched Decofile", "duration", time.Since(fetchStart))
 
 	// Define the ConfigMap name
 	configMapName := decofile.ConfigMapName()
@@ -114,18 +124,25 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// Retrieve configuration data from source (single JSON string)
+	sourceRetrieveStart := time.Now()
+	log.Info("Starting source retrieval", "sourceType", source.SourceType())
 	jsonContent, err := source.Retrieve(ctx)
+	sourceRetrieveDuration := time.Since(sourceRetrieveStart)
 	if err != nil {
-		log.Error(err, "Failed to retrieve data from source")
+		log.Error(err, "Failed to retrieve data from source", "duration", sourceRetrieveDuration)
 		return ctrl.Result{}, err
 	}
+	log.Info("Source retrieval completed", "sourceType", source.SourceType(), "duration", sourceRetrieveDuration, "contentSize", len(jsonContent))
 
 	sourceType := source.SourceType()
 
 	// Always compress content with Brotli for consistency
+	compressionStart := time.Now()
+	log.Info("Starting Brotli compression", "inputSize", len(jsonContent))
 	compressed, err := compressBrotli([]byte(jsonContent))
+	compressionDuration := time.Since(compressionStart)
 	if err != nil {
-		log.Error(err, "Failed to compress config")
+		log.Error(err, "Failed to compress config", "duration", compressionDuration)
 		return ctrl.Result{}, fmt.Errorf("failed to compress config: %w", err)
 	}
 
@@ -138,11 +155,14 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	log.Info("Compressed config with Brotli",
 		"originalSize", len(jsonContent),
 		"compressedSize", len(compressed),
-		"ratio", fmt.Sprintf("%.1f%%", compressionRatio))
+		"ratio", fmt.Sprintf("%.1f%%", compressionRatio),
+		"duration", compressionDuration)
 
 	// Check if the ConfigMap already exists
+	configMapStart := time.Now()
 	found := &corev1.ConfigMap{}
 	err = r.Get(ctx, client.ObjectKey{Name: configMapName, Namespace: decofile.Namespace}, found)
+	log.V(1).Info("ConfigMap lookup completed", "duration", time.Since(configMapStart))
 
 	var dataChanged bool
 	var timestamp string
@@ -168,12 +188,14 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			return ctrl.Result{}, err
 		}
 
+		createStart := time.Now()
 		log.Info("Creating a new ConfigMap", "ConfigMap.Namespace", configMap.Namespace, "ConfigMap.Name", configMap.Name, "timestamp", timestamp)
 		err = r.Create(ctx, configMap)
 		if err != nil {
-			log.Error(err, "Failed to create new ConfigMap", "ConfigMap.Namespace", configMap.Namespace, "ConfigMap.Name", configMap.Name)
+			log.Error(err, "Failed to create new ConfigMap", "ConfigMap.Namespace", configMap.Namespace, "ConfigMap.Name", configMap.Name, "duration", time.Since(createStart))
 			return ctrl.Result{}, err
 		}
+		log.Info("ConfigMap created successfully", "duration", time.Since(createStart))
 	} else if err != nil {
 		log.Error(err, "Failed to get ConfigMap")
 		return ctrl.Result{}, err
@@ -191,12 +213,13 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			found.Data = configData
 			found.Data["timestamp.txt"] = timestamp
 
+			updateStart := time.Now()
 			err = r.Update(ctx, found)
 			if err != nil {
-				log.Error(err, "Failed to update ConfigMap", "ConfigMap.Namespace", found.Namespace, "ConfigMap.Name", found.Name)
+				log.Error(err, "Failed to update ConfigMap", "ConfigMap.Namespace", found.Namespace, "ConfigMap.Name", found.Name, "duration", time.Since(updateStart))
 				return ctrl.Result{}, err
 			}
-			log.Info("Updated existing ConfigMap", "ConfigMap.Namespace", found.Namespace, "ConfigMap.Name", found.Name)
+			log.Info("Updated existing ConfigMap", "ConfigMap.Namespace", found.Namespace, "ConfigMap.Name", found.Name, "duration", time.Since(updateStart))
 		} else {
 			// Content unchanged - keep existing timestamp
 			timestamp = found.Data["timestamp.txt"]
@@ -242,17 +265,19 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	var notificationError string
 
 	if dataChanged {
+		notifyStart := time.Now()
 		log.Info("ConfigMap data changed, notifying pods", "timestamp", timestamp, "deploymentId", deploymentId)
 
-		notifier := NewNotifier(r.Client)
+		notifier := NewNotifier(r.Client, r.HTTPClient)
 		err = notifier.NotifyPodsForDecofile(ctx, decofile.Namespace, deploymentId, timestamp, jsonContent)
+		notifyDuration := time.Since(notifyStart)
 		if err != nil {
-			log.Error(err, "Failed to notify pods", "deploymentId", deploymentId)
+			log.Error(err, "Failed to notify pods", "deploymentId", deploymentId, "duration", notifyDuration)
 			notificationError = err.Error()
 			podsNotified = false
 			// Don't return error - update status with failure condition
 		} else {
-			log.Info("Successfully notified all pods", "timestamp", timestamp, "deploymentId", deploymentId)
+			log.Info("Successfully notified all pods", "timestamp", timestamp, "deploymentId", deploymentId, "duration", notifyDuration)
 			podsNotified = true
 		}
 	}
@@ -318,13 +343,20 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		updateCondition(freshDecofile, podsNotifiedCondition)
 	}
 
+	statusUpdateStart := time.Now()
 	err = r.Status().Update(ctx, freshDecofile)
 	if err != nil {
-		log.Error(err, "Failed to update Decofile status")
+		log.Error(err, "Failed to update Decofile status", "duration", time.Since(statusUpdateStart))
 		return ctrl.Result{}, err
 	}
+	log.V(1).Info("Status update completed", "duration", time.Since(statusUpdateStart))
 
-	log.Info("Successfully reconciled Decofile")
+	totalDuration := time.Since(reconcileStart)
+	log.Info("Successfully reconciled Decofile",
+		"totalDuration", totalDuration,
+		"decofile", req.NamespacedName,
+		"configMap", configMapName,
+		"dataChanged", dataChanged)
 
 	// Return error if notifications failed (will requeue)
 	if dataChanged && !podsNotified {

@@ -18,14 +18,30 @@ package controller
 
 import (
 	"bytes"
+	"time"
 
 	"github.com/andybalholm/brotli"
+	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-// compressBrotli compresses data using Brotli compression
+const (
+	// brotliCompressionLevel is set to 5 for a good balance of speed and compression.
+	// Level 11 (BestCompression) is 10-50x slower with only ~10-15% better compression.
+	brotliCompressionLevel = 5
+	// compressionWarningThreshold logs a warning if compression takes longer than this
+	compressionWarningThreshold = 30 * time.Second
+)
+
+var compressionLog = ctrl.Log.WithName("compression")
+
+// compressBrotli compresses data using Brotli compression at a balanced level.
+// Uses level 5 instead of 11 (BestCompression) for much faster compression.
+// Logs a warning if compression takes longer than 30 seconds.
 func compressBrotli(data []byte) ([]byte, error) {
+	start := time.Now()
+
 	var buf bytes.Buffer
-	writer := brotli.NewWriterLevel(&buf, brotli.BestCompression)
+	writer := brotli.NewWriterLevel(&buf, brotliCompressionLevel)
 
 	_, err := writer.Write(data)
 	if err != nil {
@@ -36,6 +52,15 @@ func compressBrotli(data []byte) ([]byte, error) {
 	err = writer.Close()
 	if err != nil {
 		return nil, err
+	}
+
+	duration := time.Since(start)
+	if duration > compressionWarningThreshold {
+		compressionLog.Info("WARNING: Brotli compression took longer than expected",
+			"duration", duration,
+			"inputSize", len(data),
+			"outputSize", buf.Len(),
+			"threshold", compressionWarningThreshold)
 	}
 
 	return buf.Bytes(), nil

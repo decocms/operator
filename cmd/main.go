@@ -206,9 +206,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Create shared HTTP client for pod notifications to prevent connection leaks
+	httpClient := controller.NewHTTPClient()
+
 	if err := (&controller.DecofileReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		HTTPClient: httpClient,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Decofile")
 		os.Exit(1)

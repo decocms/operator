@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -80,7 +81,8 @@ func (s *GitHubSource) Retrieve(ctx context.Context) (string, error) {
 	}
 
 	// Download and extract from GitHub
-	log.Info("Downloading from GitHub",
+	downloadStart := time.Now()
+	log.Info("Starting GitHub download",
 		"org", s.config.Org,
 		"repo", s.config.Repo,
 		"commit", s.config.Commit,
@@ -93,9 +95,12 @@ func (s *GitHubSource) Retrieve(ctx context.Context) (string, error) {
 		s.config.Commit,
 		s.config.Path,
 	)
+	downloadDuration := time.Since(downloadStart)
 	if err != nil {
+		log.Error(err, "GitHub download failed", "duration", downloadDuration)
 		return "", fmt.Errorf("failed to download from github: %w", err)
 	}
+	log.Info("GitHub download completed", "duration", downloadDuration, "filesCount", len(files))
 
 	// Store all files as a single JSON object to preserve original filenames
 	// (ConfigMap keys have strict character restrictions)

@@ -40,7 +40,26 @@ const (
 	notificationBatchSize = 10              // Parallel notification batch size (reduced to save memory)
 	appContainerName      = "app"
 	reloadTokenEnvVar     = "DECO_RELEASE_RELOAD_TOKEN"
+
+	// HTTP Transport configuration to prevent connection leaks
+	maxIdleConns        = 100
+	maxIdleConnsPerHost = 10
+	idleConnTimeout     = 90 * time.Second
 )
+
+// NewHTTPClient creates a shared HTTP client with proper connection pooling configuration.
+// This client should be reused across all reconciliations to prevent memory leaks.
+func NewHTTPClient() *http.Client {
+	transport := &http.Transport{
+		MaxIdleConns:        maxIdleConns,
+		MaxIdleConnsPerHost: maxIdleConnsPerHost,
+		IdleConnTimeout:     idleConnTimeout,
+	}
+	return &http.Client{
+		Timeout:   reloadTimeout,
+		Transport: transport,
+	}
+}
 
 // Notifier handles notifying pods about ConfigMap changes
 type Notifier struct {
@@ -48,13 +67,12 @@ type Notifier struct {
 	HTTPClient *http.Client
 }
 
-// NewNotifier creates a new Notifier instance
-func NewNotifier(k8sClient client.Client) *Notifier {
+// NewNotifier creates a new Notifier instance with a shared HTTP client
+// The httpClient should be reused across reconciliations to avoid connection leaks
+func NewNotifier(k8sClient client.Client, httpClient *http.Client) *Notifier {
 	return &Notifier{
-		Client: k8sClient,
-		HTTPClient: &http.Client{
-			Timeout: reloadTimeout,
-		},
+		Client:     k8sClient,
+		HTTPClient: httpClient,
 	}
 }
 
@@ -236,17 +254,18 @@ func (n *Notifier) notifyPodWithRetry(ctx context.Context, pod *corev1.Pod, time
 
 		resp, err := n.HTTPClient.Do(req)
 		if err == nil {
-			defer func() {
-				if closeErr := resp.Body.Close(); closeErr != nil {
-					log.Error(closeErr, "Failed to close response body", "pod", pod.Name)
-				}
-			}()
-			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-				log.V(1).Info("Pod notified successfully", "pod", pod.Name, "status", resp.StatusCode)
+			// Read status code before closing body
+			statusCode := resp.StatusCode
+			// Close body immediately - do NOT use defer inside loop to avoid connection leak
+			if closeErr := resp.Body.Close(); closeErr != nil {
+				log.Error(closeErr, "Failed to close response body", "pod", pod.Name)
+			}
+			if statusCode >= 200 && statusCode < 300 {
+				log.V(1).Info("Pod notified successfully", "pod", pod.Name, "status", statusCode)
 				return nil
 			}
-			log.V(1).Info("Pod returned non-success status", "pod", pod.Name, "status", resp.StatusCode)
-			err = fmt.Errorf("pod returned status %d", resp.StatusCode)
+			log.V(1).Info("Pod returned non-success status", "pod", pod.Name, "status", statusCode)
+			err = fmt.Errorf("pod returned status %d", statusCode)
 		}
 
 		// If this was the last attempt, return the error

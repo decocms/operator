@@ -24,6 +24,12 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
+)
+
+const (
+	// downloadTimeout is the maximum time for downloading the ZIP file
+	downloadTimeout = 5 * time.Minute
 )
 
 // Downloader handles downloading and extracting files from GitHub repositories
@@ -34,6 +40,16 @@ type Downloader struct {
 // BuildZipURL creates the codeload URL for downloading repository as ZIP
 func BuildZipURL(org, repo, commit string) string {
 	return fmt.Sprintf("https://codeload.github.com/%s/%s/zip/%s", org, repo, commit)
+}
+
+// httpClient is a shared HTTP client with timeout for GitHub downloads
+var httpClient = &http.Client{
+	Timeout: downloadTimeout,
+	Transport: &http.Transport{
+		MaxIdleConns:        10,
+		MaxIdleConnsPerHost: 5,
+		IdleConnTimeout:     90 * time.Second,
+	},
 }
 
 // DownloadAndExtract downloads ZIP from GitHub and extracts files from specified path
@@ -51,10 +67,11 @@ func (d *Downloader) DownloadAndExtract(org, repo, commit, path string) (map[str
 		req.Header.Set("Authorization", fmt.Sprintf("token %s", d.Token))
 	}
 
-	// Download ZIP
-	resp, err := http.DefaultClient.Do(req)
+	// Download ZIP with timing
+	httpStart := time.Now()
+	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to download: %w", err)
+		return nil, fmt.Errorf("failed to download (after %v): %w", time.Since(httpStart), err)
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
@@ -63,17 +80,27 @@ func (d *Downloader) DownloadAndExtract(org, repo, commit, path string) (map[str
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to download: status %d", resp.StatusCode)
+		return nil, fmt.Errorf("failed to download: status %d (after %v)", resp.StatusCode, time.Since(httpStart))
 	}
 
-	// Read ZIP into memory
+	// Read ZIP into memory with timing
+	readStart := time.Now()
 	zipData, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, fmt.Errorf("failed to read response (after %v): %w", time.Since(readStart), err)
+	}
+	// Log timing info via error message formatting (caller will log)
+	httpDuration := time.Since(httpStart)
+	_ = httpDuration // timing available for debugging
+
+	// Extract files with timing
+	extractStart := time.Now()
+	files, err := extractFiles(zipData, path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract (after %v): %w", time.Since(extractStart), err)
 	}
 
-	// Extract files
-	return extractFiles(zipData, path)
+	return files, nil
 }
 
 func extractFiles(zipData []byte, targetPath string) (map[string][]byte, error) {
