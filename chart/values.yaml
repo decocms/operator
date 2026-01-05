@@ -18,11 +18,11 @@ github:
 # Resource limits and requests
 resources:
   limits:
-    cpu: 1000m
-    memory: 1024Mi
+    cpu: 8000m
+    memory: 8Gi
   requests:
-    cpu: 100m
-    memory: 512Mi
+    cpu: 1000m
+    memory: 2Gi
 
 # cert-manager configuration
 certManager:
