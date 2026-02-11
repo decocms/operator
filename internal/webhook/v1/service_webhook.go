@@ -108,7 +108,7 @@ func (d *ServiceCustomDefaulter) findDecofileByDeploymentId(ctx context.Context,
 }
 
 // injectDecofileVolume injects the Decofile ConfigMap as a volume into the Service
-func (d *ServiceCustomDefaulter) injectDecofileVolume(ctx context.Context, service *servingknativedevv1.Service, decofile *decositesv1alpha1.Decofile, mountDir string) error {
+func (d *ServiceCustomDefaulter) injectDecofileVolume(_ context.Context, service *servingknativedevv1.Service, decofile *decositesv1alpha1.Decofile, mountDir string) error {
 	// Get ConfigMap name deterministically
 	// This ensures the name is always available, even if the Decofile hasn't been reconciled yet
 	configMapName := decofile.ConfigMapName()

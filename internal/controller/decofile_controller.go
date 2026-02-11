@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -387,5 +388,8 @@ func (r *DecofileReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&decositesv1alpha1.Decofile{}).
 		Owns(&corev1.ConfigMap{}).
 		Named("decofile").
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: 10, // Allow 10 parallel reconciliations
+		}).
 		Complete(r)
 }
