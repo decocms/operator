@@ -389,7 +389,7 @@ func (r *DecofileReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.ConfigMap{}).
 		Named("decofile").
 		WithOptions(controller.Options{
-			MaxConcurrentReconciles: 10, // Allow 10 parallel reconciliations
+			MaxConcurrentReconciles: 8, // Allow 8 parallel reconciliations
 		}).
 		Complete(r)
 }
