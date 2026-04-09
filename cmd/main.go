@@ -21,6 +21,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -41,6 +42,7 @@ import (
 
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
 	"github.com/deco-sites/decofile-operator/internal/controller"
+	"github.com/deco-sites/decofile-operator/internal/valkey"
 	webhookv1 "github.com/deco-sites/decofile-operator/internal/webhook/v1"
 	// +kubebuilder:scaffold:imports
 )
@@ -68,6 +70,9 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
+	var valkeySentinelURLs string
+	var valkeySentinelMaster string
+	var valkeyAdminPassword string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -85,6 +90,12 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.StringVar(&valkeySentinelURLs, "valkey-sentinel-urls", os.Getenv("VALKEY_SENTINEL_URLS"),
+		"Comma-separated list of Valkey Sentinel addresses (host:port). When empty, ACL provisioning is disabled.")
+	flag.StringVar(&valkeySentinelMaster, "valkey-sentinel-master", getEnvOrDefault("VALKEY_SENTINEL_MASTER_NAME", "mymaster"),
+		"Valkey Sentinel master name.")
+	flag.StringVar(&valkeyAdminPassword, "valkey-admin-password", os.Getenv("VALKEY_ADMIN_PASSWORD"),
+		"Password for the Valkey admin user used to manage ACLs.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -206,6 +217,31 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Build Valkey client. Falls back to a no-op client when Sentinel URLs are not configured
+	// so the operator works in environments where Valkey ACL provisioning is not needed.
+	var valkeyClient valkey.Client
+	if valkeySentinelURLs != "" {
+		valkeyClient = valkey.NewSentinelClient(valkey.Config{
+			SentinelAddrs: strings.Split(valkeySentinelURLs, ","),
+			MasterName:    valkeySentinelMaster,
+			AdminPassword: valkeyAdminPassword,
+		})
+		defer func() { _ = valkeyClient.Close() }()
+		setupLog.Info("Valkey ACL provisioning enabled", "sentinel", valkeySentinelURLs, "master", valkeySentinelMaster)
+	} else {
+		valkeyClient = valkey.NoopClient{}
+		setupLog.Info("Valkey ACL provisioning disabled (VALKEY_SENTINEL_URLS not set)")
+	}
+
+	if err := (&controller.NamespaceReconciler{
+		Client:       mgr.GetClient(),
+		Scheme:       mgr.GetScheme(),
+		ValkeyClient: valkeyClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Namespace")
+		os.Exit(1)
+	}
+
 	// Create shared HTTP client for pod notifications to prevent connection leaks
 	httpClient := controller.NewHTTPClient()
 
@@ -260,4 +296,11 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func getEnvOrDefault(key, defaultVal string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return defaultVal
 }

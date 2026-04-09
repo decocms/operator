@@ -40,6 +40,7 @@ const (
 	decofileInjectAnnot    = "deco.sites/decofile-inject"
 	decofileMountPathAnnot = "deco.sites/decofile-mount-path"
 	deploymentIdLabel      = "app.deco/deploymentId"
+	valkeyACLSecretName    = "valkey-acl"
 )
 
 // nolint:unused
@@ -290,9 +291,38 @@ func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object
 	}
 	service.Spec.Template.Labels[deploymentIdLabel] = deploymentId
 
+	// Inject valkey-acl Secret as envFrom so pods receive per-tenant Valkey credentials.
+	// optional=true ensures pods start even before the Secret is provisioned by the operator,
+	// falling back to deco's FILE_SYSTEM cache in the meantime.
+	d.addOrUpdateValkeyEnvFrom(service)
+
 	servicelog.Info("Successfully injected Decofile into Service", "service", service.Name, "deploymentId", deploymentId, "configmap", decofile.ConfigMapName())
 
 	return nil
+}
+
+// addOrUpdateValkeyEnvFrom injects the valkey-acl Secret as an envFrom source into the
+// target container. It is idempotent: if the reference already exists, it is left unchanged.
+func (d *ServiceCustomDefaulter) addOrUpdateValkeyEnvFrom(service *servingknativedevv1.Service) {
+	if len(service.Spec.Template.Spec.Containers) == 0 {
+		return
+	}
+	idx := d.findTargetContainer(service)
+	optional := true
+	for _, ef := range service.Spec.Template.Spec.PodSpec.Containers[idx].EnvFrom {
+		if ef.SecretRef != nil && ef.SecretRef.Name == valkeyACLSecretName {
+			return // already present
+		}
+	}
+	service.Spec.Template.Spec.PodSpec.Containers[idx].EnvFrom = append(
+		service.Spec.Template.Spec.PodSpec.Containers[idx].EnvFrom,
+		corev1.EnvFromSource{
+			SecretRef: &corev1.SecretEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: valkeyACLSecretName},
+				Optional:             &optional,
+			},
+		},
+	)
 }
 
 // TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
