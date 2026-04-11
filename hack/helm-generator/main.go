@@ -83,9 +83,9 @@ func main() {
 		fileCount++
 	}
 
-	// Add GITHUB_TOKEN to deployment
-	if err := addGitHubTokenToDeployment(templatesDir); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Could not add GITHUB_TOKEN: %v\n", err)
+	// Add env vars to deployment
+	if err := addEnvVarsToDeployment(templatesDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not add env vars to deployment: %v\n", err)
 	}
 
 	fmt.Printf("✓ Generated %d Helm templates\n\n", fileCount)
@@ -172,7 +172,7 @@ func addConditionals(content, kind string) string {
 	return content
 }
 
-func addGitHubTokenToDeployment(templatesDir string) error {
+func addEnvVarsToDeployment(templatesDir string) error {
 	files, err := filepath.Glob(filepath.Join(templatesDir, "deployment-*.yaml"))
 	if err != nil || len(files) == 0 {
 		return fmt.Errorf("no deployment file found")
@@ -187,10 +187,22 @@ func addGitHubTokenToDeployment(templatesDir string) error {
 	contentStr := string(content)
 
 	// Find the image line and add env vars after it
-	envBlock := `        {{- if .Values.github.token }}
+	envBlock := `        {{- if or .Values.github.token .Values.valkey.sentinelUrls }}
         env:
+        {{- if .Values.github.token }}
         - name: GITHUB_TOKEN
           value: {{ .Values.github.token | quote }}
+        {{- end }}
+        {{- if .Values.valkey.sentinelUrls }}
+        - name: VALKEY_SENTINEL_URLS
+          value: {{ .Values.valkey.sentinelUrls | quote }}
+        - name: VALKEY_SENTINEL_MASTER_NAME
+          value: {{ .Values.valkey.sentinelMasterName | quote }}
+        {{- if .Values.valkey.adminPassword }}
+        - name: VALKEY_ADMIN_PASSWORD
+          value: {{ .Values.valkey.adminPassword | quote }}
+        {{- end }}
+        {{- end }}
         {{- end }}`
 
 	re := regexp.MustCompile(`(?m)(        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}")`)

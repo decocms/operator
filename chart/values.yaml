@@ -15,6 +15,15 @@ replicaCount: 1
 github:
   token: ""
 
+# Valkey (Redis) ACL provisioning
+# When sentinelUrls is set, the operator provisions per-tenant ACL users in Valkey
+# for each namespace annotated with deco.sites/valkey-acl: "true".
+# Leave sentinelUrls empty to disable ACL provisioning (NoopClient).
+valkey:
+  sentinelUrls: ""
+  sentinelMasterName: "mymaster"
+  adminPassword: ""
+
 # Resource limits and requests
 resources:
   limits:

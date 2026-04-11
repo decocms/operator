@@ -7,6 +7,7 @@ rules:
   - ""
   resources:
   - configmaps
+  - secrets
   verbs:
   - create
   - delete
@@ -18,8 +19,17 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - namespaces
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - pods
-  - secrets
   verbs:
   - get
   - list
@@ -57,4 +67,6 @@ rules:
   verbs:
   - get
   - list
+  - patch
+  - update
   - watch
