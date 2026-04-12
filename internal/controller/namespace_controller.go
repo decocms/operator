@@ -198,10 +198,12 @@ func (r *NamespaceReconciler) patchKnativeServiceTimestamp(ctx context.Context, 
 	for i := range svcList.Items {
 		svc := &svcList.Items[i]
 		patch := client.MergeFrom(svc.DeepCopy())
-		if svc.Annotations == nil {
-			svc.Annotations = make(map[string]string)
+		// Must annotate spec.template, not metadata — Knative only creates a new
+		// Revision when spec.template changes.
+		if svc.Spec.Template.Annotations == nil {
+			svc.Spec.Template.Annotations = make(map[string]string)
 		}
-		svc.Annotations[valkeyProvisionedAnnot] = now
+		svc.Spec.Template.Annotations[valkeyProvisionedAnnot] = now
 		if err := r.Patch(ctx, svc, patch); err != nil {
 			log.Error(err, "Failed to patch Knative Service", "service", svc.Name)
 		}
