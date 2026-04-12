@@ -33,7 +33,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	servingknativedevv1 "knative.dev/serving/pkg/apis/serving/v1"
 
@@ -68,8 +70,23 @@ type NamespaceReconciler struct {
 // SetupWithManager registers the Namespace controller with a resync period for
 // self-healing (recovers ACLs lost after a Valkey restart).
 func (r *NamespaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Watch Secrets named "valkey-acl" and enqueue the parent Namespace.
+	// Namespace is cluster-scoped so Owns() (which relies on owner references) cannot
+	// be used across scopes. Instead we map Secret → Namespace by name.
+	secretToNamespace := handler.EnqueueRequestsFromMapFunc(
+		func(_ context.Context, obj client.Object) []reconcile.Request {
+			if obj.GetName() != valkeySecretName {
+				return nil
+			}
+			return []reconcile.Request{
+				{NamespacedName: types.NamespacedName{Name: obj.GetNamespace()}},
+			}
+		},
+	)
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Namespace{}).
+		Watches(&corev1.Secret{}, secretToNamespace).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: 4,
 		}).
