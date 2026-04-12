@@ -67,6 +67,27 @@ type NamespaceReconciler struct {
 	ValkeyClient valkey.Client
 }
 
+// InitMetrics seeds the tenants_provisioned gauge from current cluster state.
+// Must be called after the cache is synced (i.e. inside a Runnable or after mgr.Start).
+func (r *NamespaceReconciler) InitMetrics(ctx context.Context) error {
+	nsList := &corev1.NamespaceList{}
+	if err := r.List(ctx, nsList); err != nil {
+		return err
+	}
+	count := 0.0
+	for _, ns := range nsList.Items {
+		if ns.Annotations[valkeyACLAnnotation] != "true" {
+			continue
+		}
+		secret := &corev1.Secret{}
+		if err := r.Get(ctx, types.NamespacedName{Name: valkeySecretName, Namespace: ns.Name}, secret); err == nil {
+			count++
+		}
+	}
+	valkeyTenantsProvisioned.Set(count)
+	return nil
+}
+
 // SetupWithManager registers the Namespace controller with a resync period for
 // self-healing (recovers ACLs lost after a Valkey restart).
 func (r *NamespaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
