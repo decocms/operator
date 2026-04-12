@@ -47,6 +47,16 @@ type sentinelClient struct {
 	rdb *redis.Client
 }
 
+// NewDirectClient returns a Client with a direct connection to a single Valkey instance.
+// Intended for local development and testing — not for production use.
+func NewDirectClient(addr, password string) Client {
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     addr,
+		Password: password,
+	})
+	return &sentinelClient{rdb: rdb}
+}
+
 // NewSentinelClient returns a Client backed by a Sentinel-aware connection.
 // The underlying go-redis FailoverClient resolves the current master automatically
 // and reconnects after a Sentinel failover.

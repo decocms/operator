@@ -70,6 +70,7 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
+	var valkeyURL string
 	var valkeySentinelURLs string
 	var valkeySentinelMaster string
 	var valkeyAdminPassword string
@@ -90,6 +91,8 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.StringVar(&valkeyURL, "valkey-url", os.Getenv("VALKEY_URL"),
+		"Direct Valkey address (host:port). Takes precedence over sentinel. For local dev only.")
 	flag.StringVar(&valkeySentinelURLs, "valkey-sentinel-urls", os.Getenv("VALKEY_SENTINEL_URLS"),
 		"Comma-separated list of Valkey Sentinel addresses (host:port). When empty, ACL provisioning is disabled.")
 	flag.StringVar(&valkeySentinelMaster, "valkey-sentinel-master", getEnvOrDefault("VALKEY_SENTINEL_MASTER_NAME", "mymaster"),
@@ -220,17 +223,22 @@ func main() {
 	// Build Valkey client. Falls back to a no-op client when Sentinel URLs are not configured
 	// so the operator works in environments where Valkey ACL provisioning is not needed.
 	var valkeyClient valkey.Client
-	if valkeySentinelURLs != "" {
+	switch {
+	case valkeyURL != "":
+		valkeyClient = valkey.NewDirectClient(valkeyURL, valkeyAdminPassword)
+		defer func() { _ = valkeyClient.Close() }()
+		setupLog.Info("Valkey ACL provisioning enabled (direct)", "addr", valkeyURL)
+	case valkeySentinelURLs != "":
 		valkeyClient = valkey.NewSentinelClient(valkey.Config{
 			SentinelAddrs: strings.Split(valkeySentinelURLs, ","),
 			MasterName:    valkeySentinelMaster,
 			AdminPassword: valkeyAdminPassword,
 		})
 		defer func() { _ = valkeyClient.Close() }()
-		setupLog.Info("Valkey ACL provisioning enabled", "sentinel", valkeySentinelURLs, "master", valkeySentinelMaster)
-	} else {
+		setupLog.Info("Valkey ACL provisioning enabled (sentinel)", "sentinel", valkeySentinelURLs, "master", valkeySentinelMaster)
+	default:
 		valkeyClient = valkey.NoopClient{}
-		setupLog.Info("Valkey ACL provisioning disabled (VALKEY_SENTINEL_URLS not set)")
+		setupLog.Info("Valkey ACL provisioning disabled (set VALKEY_URL or VALKEY_SENTINEL_URLS)")
 	}
 
 	if err := (&controller.NamespaceReconciler{
