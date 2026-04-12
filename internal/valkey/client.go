@@ -76,6 +76,7 @@ func (c *sentinelClient) UpsertUser(ctx context.Context, username, password stri
 	args := []interface{}{
 		"ACL", "SETUSER", username,
 		"on",
+		"resetpass",   // clear any previously stored password hashes
 		">" + password,
 		"resetkeys",
 		"~" + username + ":*",
