@@ -115,8 +115,12 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			log.Info("Deleting Valkey ACL user", "user", siteName)
 			if err := r.ValkeyClient.DeleteUser(ctx, siteName); err != nil {
 				log.Error(err, "Failed to delete Valkey ACL user, will retry")
+				valkeyACLErrors.WithLabelValues("delete").Inc()
 				return ctrl.Result{}, err
 			}
+			valkeyACLDeleted.Inc()
+			valkeyTenantsProvisioned.Dec()
+			log.Info("Valkey ACL user deleted", "user", siteName)
 			controllerutil.RemoveFinalizer(ns, valkeyACLFinalizer)
 			if err := r.Update(ctx, ns); err != nil {
 				return ctrl.Result{}, err
@@ -148,6 +152,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 		log.Info("Provisioning Valkey ACL user", "user", siteName)
 		if upsertErr := r.ValkeyClient.UpsertUser(ctx, siteName, password); upsertErr != nil {
+			valkeyACLErrors.WithLabelValues("upsert").Inc()
 			return ctrl.Result{}, fmt.Errorf("upsert Valkey user: %w", upsertErr)
 		}
 
@@ -155,12 +160,14 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			return ctrl.Result{}, fmt.Errorf("create secret: %w", createErr)
 		}
 
+		valkeyACLProvisioned.Inc()
+		valkeyTenantsProvisioned.Inc()
+		log.Info("Valkey ACL provisioned", "user", siteName, "namespace", ns.Name)
+
 		// Trigger a new Knative Revision so running pods pick up the new Secret.
 		if patchErr := r.patchKnativeServiceTimestamp(ctx, ns.Name); patchErr != nil {
 			log.Error(patchErr, "Failed to patch Knative Service (non-fatal)")
 		}
-
-		log.Info("Valkey ACL provisioned", "user", siteName)
 
 	case err != nil:
 		return ctrl.Result{}, fmt.Errorf("get secret: %w", err)
@@ -169,14 +176,20 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		// Secret exists: verify the ACL user is present in Valkey (self-healing after restart).
 		exists, checkErr := r.ValkeyClient.UserExists(ctx, siteName)
 		if checkErr != nil {
+			valkeyACLErrors.WithLabelValues("check").Inc()
 			return ctrl.Result{}, fmt.Errorf("check Valkey user: %w", checkErr)
 		}
 		if !exists {
 			password := string(secret.Data["LOADER_CACHE_REDIS_PASSWORD"])
-			log.Info("Valkey ACL user missing (Valkey restarted?), re-provisioning", "user", siteName)
+			log.Info("Valkey ACL user missing, re-provisioning", "user", siteName, "reason", "Valkey restart or external deletion")
 			if upsertErr := r.ValkeyClient.UpsertUser(ctx, siteName, password); upsertErr != nil {
+				valkeyACLErrors.WithLabelValues("upsert").Inc()
 				return ctrl.Result{}, fmt.Errorf("re-upsert Valkey user: %w", upsertErr)
 			}
+			valkeyACLSelfHealed.Inc()
+			log.Info("Valkey ACL user re-provisioned", "user", siteName)
+		} else {
+			log.V(1).Info("Valkey ACL user OK", "user", siteName)
 		}
 	}
 

@@ -18,6 +18,7 @@ package valkey
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -108,7 +109,11 @@ func (c *sentinelClient) UserExists(ctx context.Context, username string) (bool,
 	if err == nil {
 		return true, nil
 	}
-	// Valkey returns an error with "ERR No such user" when the user does not exist.
+	// redis.Nil means the command returned a nil response — treat as not found.
+	if errors.Is(err, redis.Nil) {
+		return false, nil
+	}
+	// Valkey returns "ERR No such user" for unknown usernames.
 	if strings.Contains(err.Error(), "No such user") {
 		return false, nil
 	}
