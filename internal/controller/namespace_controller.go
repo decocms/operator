@@ -43,9 +43,9 @@ import (
 )
 
 const (
-	valkeyACLAnnotation  = "deco.sites/valkey-acl"
-	valkeyACLFinalizer   = "deco.sites/valkey-acl"
-	valkeySecretName     = "valkey-acl"
+	valkeyACLAnnotation    = "deco.sites/valkey-acl"
+	valkeyACLFinalizer     = "deco.sites/valkey-acl"
+	valkeySecretName       = "valkey-acl"
 	valkeyProvisionedAnnot = "deco.sites/valkey-acl-provisioned"
 
 	siteNamespacePrefix = "sites-"

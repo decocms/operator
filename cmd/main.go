@@ -33,10 +33,10 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -98,7 +98,8 @@ func main() {
 		"Direct Valkey address (host:port). Takes precedence over sentinel. For local dev only.")
 	flag.StringVar(&valkeySentinelURLs, "valkey-sentinel-urls", os.Getenv("VALKEY_SENTINEL_URLS"),
 		"Comma-separated list of Valkey Sentinel addresses (host:port). When empty, ACL provisioning is disabled.")
-	flag.StringVar(&valkeySentinelMaster, "valkey-sentinel-master", getEnvOrDefault("VALKEY_SENTINEL_MASTER_NAME", "mymaster"),
+	flag.StringVar(&valkeySentinelMaster, "valkey-sentinel-master",
+		getEnvOrDefault("VALKEY_SENTINEL_MASTER_NAME", "mymaster"),
 		"Valkey Sentinel master name.")
 	flag.StringVar(&valkeyAdminPassword, "valkey-admin-password", os.Getenv("VALKEY_ADMIN_PASSWORD"),
 		"Password for the Valkey admin user used to manage ACLs.")
@@ -238,7 +239,8 @@ func main() {
 			AdminPassword: valkeyAdminPassword,
 		})
 		defer func() { _ = valkeyClient.Close() }()
-		setupLog.Info("Valkey ACL provisioning enabled (sentinel)", "sentinel", valkeySentinelURLs, "master", valkeySentinelMaster)
+		setupLog.Info("Valkey ACL provisioning enabled (sentinel)",
+			"sentinel", valkeySentinelURLs, "master", valkeySentinelMaster)
 	default:
 		valkeyClient = valkey.NoopClient{}
 		setupLog.Info("Valkey ACL provisioning disabled (set VALKEY_URL or VALKEY_SENTINEL_URLS)")

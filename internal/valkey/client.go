@@ -77,7 +77,7 @@ func (c *sentinelClient) UpsertUser(ctx context.Context, username, password stri
 	args := []interface{}{
 		"ACL", "SETUSER", username,
 		"on",
-		"resetpass",   // clear any previously stored password hashes
+		"resetpass", // clear any previously stored password hashes
 		">" + password,
 		"resetkeys",
 		"~" + username + ":*",
@@ -130,7 +130,7 @@ func (c *sentinelClient) Close() error {
 type NoopClient struct{}
 
 func (NoopClient) UpsertUser(_ context.Context, _, _ string) error { return nil }
-func (NoopClient) DeleteUser(_ context.Context, _ string) error     { return nil }
+func (NoopClient) DeleteUser(_ context.Context, _ string) error    { return nil }
 func (NoopClient) UserExists(_ context.Context, _ string) (bool, error) {
 	return false, nil
 }
