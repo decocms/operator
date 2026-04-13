@@ -60,6 +60,9 @@ const (
 // VALKEY_ACL_RESYNC_PERIOD (e.g. "10m", "30m", "1h").
 const DefaultResyncPeriod = 10 * time.Minute
 
+// valkeyACLAnnotationValue is the expected value of the opt-in annotation.
+const valkeyACLAnnotationValue = "true"
+
 // NamespaceReconciler provisions per-tenant Valkey ACL credentials for site namespaces.
 // When a Namespace has the annotation "deco.sites/valkey-acl: true", the reconciler:
 //   - Creates a Valkey ACL user restricted to the site's key prefix.
@@ -115,7 +118,7 @@ func (r *NamespaceReconciler) TriggerResyncAll(ctx context.Context) {
 	count := 0
 	for i := range nsList.Items {
 		ns := &nsList.Items[i]
-		if ns.Annotations[valkeyACLAnnotation] != "true" {
+		if ns.Annotations[valkeyACLAnnotation] != valkeyACLAnnotationValue {
 			continue
 		}
 		patch := client.MergeFrom(ns.DeepCopy())
@@ -141,7 +144,7 @@ func (r *NamespaceReconciler) InitMetrics(ctx context.Context) error {
 	}
 	count := 0.0
 	for _, ns := range nsList.Items {
-		if ns.Annotations[valkeyACLAnnotation] != "true" {
+		if ns.Annotations[valkeyACLAnnotation] != valkeyACLAnnotationValue {
 			continue
 		}
 		secret := &corev1.Secret{}
@@ -189,7 +192,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// Only process namespaces with the opt-in annotation.
-	if ns.Annotations[valkeyACLAnnotation] != "true" {
+	if ns.Annotations[valkeyACLAnnotation] != valkeyACLAnnotationValue {
 		return ctrl.Result{}, nil
 	}
 

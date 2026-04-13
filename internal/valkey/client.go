@@ -254,8 +254,8 @@ func (c *sentinelClient) forEachReplica(ctx context.Context, fn func(*redis.Clie
 // configuration is absent (e.g., local development or auth not yet enabled).
 type NoopClient struct{}
 
-func (NoopClient) UpsertUser(_ context.Context, _, _ string) error         { return nil }
-func (NoopClient) DeleteUser(_ context.Context, _ string) error            { return nil }
-func (NoopClient) UserExists(_ context.Context, _ string) (bool, error)    { return false, nil }
-func (NoopClient) WatchFailover(_ context.Context, _ func()) error         { return nil }
-func (NoopClient) Close() error                                            { return nil }
+func (NoopClient) UpsertUser(_ context.Context, _, _ string) error      { return nil }
+func (NoopClient) DeleteUser(_ context.Context, _ string) error         { return nil }
+func (NoopClient) UserExists(_ context.Context, _ string) (bool, error) { return false, nil }
+func (NoopClient) WatchFailover(_ context.Context, _ func()) error      { return nil }
+func (NoopClient) Close() error                                         { return nil }
