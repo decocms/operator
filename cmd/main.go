@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -77,6 +78,7 @@ func main() {
 	var valkeySentinelURLs string
 	var valkeySentinelMaster string
 	var valkeyAdminPassword string
+	var valkeyResyncPeriod time.Duration
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -103,6 +105,9 @@ func main() {
 		"Valkey Sentinel master name.")
 	flag.StringVar(&valkeyAdminPassword, "valkey-admin-password", os.Getenv("VALKEY_ADMIN_PASSWORD"),
 		"Password for the Valkey admin user used to manage ACLs.")
+	flag.DurationVar(&valkeyResyncPeriod, "valkey-acl-resync-period",
+		parseDuration(os.Getenv("VALKEY_ACL_RESYNC_PERIOD"), controller.DefaultResyncPeriod),
+		"How often to re-sync ACL users to all Valkey nodes (e.g. 10m, 30m, 1h).")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -250,6 +255,7 @@ func main() {
 		Client:       mgr.GetClient(),
 		Scheme:       mgr.GetScheme(),
 		ValkeyClient: valkeyClient,
+		ResyncPeriod: valkeyResyncPeriod,
 	}
 	if err := nsReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Namespace")
@@ -320,6 +326,17 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func parseDuration(s string, fallback time.Duration) time.Duration {
+	if s == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return fallback
+	}
+	return d
 }
 
 func getEnvOrDefault(key, defaultVal string) string {

@@ -55,6 +55,11 @@ const (
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=serving.knative.dev,resources=services,verbs=get;list;watch;update;patch
 
+// DefaultResyncPeriod is the default interval at which the reconciler re-syncs
+// ACL users to all Valkey nodes even when nothing changed. Configurable via
+// VALKEY_ACL_RESYNC_PERIOD (e.g. "10m", "30m", "1h").
+const DefaultResyncPeriod = 10 * time.Minute
+
 // NamespaceReconciler provisions per-tenant Valkey ACL credentials for site namespaces.
 // When a Namespace has the annotation "deco.sites/valkey-acl: true", the reconciler:
 //   - Creates a Valkey ACL user restricted to the site's key prefix.
@@ -93,6 +98,7 @@ type NamespaceReconciler struct {
 	client.Client
 	Scheme       *runtime.Scheme
 	ValkeyClient valkey.Client
+	ResyncPeriod time.Duration
 }
 
 // InitMetrics seeds the tenants_provisioned gauge from current cluster state.
@@ -237,8 +243,8 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		log.V(1).Info("Valkey ACL synced to all nodes", "user", siteName)
 	}
 
-	// Requeue periodically to self-heal ACLs lost after Valkey restarts.
-	return ctrl.Result{RequeueAfter: 10 * time.Minute}, nil
+	// Requeue periodically to sync ACLs to all Valkey nodes.
+	return ctrl.Result{RequeueAfter: r.ResyncPeriod}, nil
 }
 
 // createSecret creates the "valkey-acl" Secret in the given namespace with
