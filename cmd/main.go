@@ -281,6 +281,18 @@ func main() {
 		} else {
 			setupLog.Info("Sentinel failover watcher enabled")
 		}
+
+		// Watch for replica restarts (+reboot/-sdown) to re-provision only the
+		// affected node immediately, without waiting for the periodic resync cycle.
+		if err := mgr.Add(&leaderElectedRunnable{fn: func(ctx context.Context) error {
+			return valkeyClient.WatchNodeRestart(ctx, func(addr string) {
+				nsReconciler.ProvisionSingleNode(ctx, addr)
+			})
+		}}); err != nil {
+			setupLog.Error(err, "unable to add node-restart watcher (non-fatal)")
+		} else {
+			setupLog.Info("Sentinel node-restart watcher enabled")
+		}
 	}
 
 	// Seed the tenants_provisioned gauge from current cluster state once the cache is warm.

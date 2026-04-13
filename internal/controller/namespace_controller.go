@@ -104,6 +104,40 @@ type NamespaceReconciler struct {
 	ResyncPeriod time.Duration
 }
 
+// ProvisionSingleNode re-provisions all managed namespaces on one specific Valkey
+// node. Called when Sentinel detects a replica restart (+reboot/-sdown events) so
+// only the restarted node is updated — no unnecessary work on healthy nodes.
+func (r *NamespaceReconciler) ProvisionSingleNode(ctx context.Context, nodeAddr string) {
+	log := logf.FromContext(ctx).WithName("valkey-node-provision").WithValues("node", nodeAddr)
+	nsList := &corev1.NamespaceList{}
+	if err := r.List(ctx, nsList); err != nil {
+		log.Error(err, "Failed to list namespaces for single-node provision")
+		return
+	}
+	provisioned := 0
+	for _, ns := range nsList.Items {
+		if ns.Annotations[valkeyACLAnnotation] != valkeyACLAnnotationValue {
+			continue
+		}
+		secret := &corev1.Secret{}
+		if err := r.Get(ctx, types.NamespacedName{Name: valkeySecretName, Namespace: ns.Name}, secret); err != nil {
+			continue
+		}
+		password := string(secret.Data["LOADER_CACHE_REDIS_PASSWORD"])
+		if password == "" {
+			continue
+		}
+		siteName := siteNameFromNamespace(ns.Name)
+		if err := r.ValkeyClient.UpsertUserOnNode(ctx, nodeAddr, siteName, password); err != nil {
+			valkeyACLErrors.WithLabelValues("upsert").Inc()
+			log.Error(err, "Failed to provision ACL on node", "site", siteName)
+		} else {
+			provisioned++
+		}
+	}
+	log.Info("Single-node ACL provision complete", "provisioned", provisioned)
+}
+
 // TriggerResyncAll immediately re-queues all managed namespaces by updating a
 // sync annotation. Called on Sentinel failover events to recover ACLs without
 // waiting for the next periodic resync cycle.

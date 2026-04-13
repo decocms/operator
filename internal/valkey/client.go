@@ -35,6 +35,14 @@ type Client interface {
 	DeleteUser(ctx context.Context, username string) error
 	// UserExists checks whether a Valkey ACL user exists on the master.
 	UserExists(ctx context.Context, username string) (bool, error)
+	// UpsertUserOnNode provisions a single ACL user on one specific Valkey node.
+	// Used for targeted re-provisioning when a replica restarts, without touching
+	// all other nodes.
+	UpsertUserOnNode(ctx context.Context, addr, username, password string) error
+	// WatchNodeRestart subscribes to Sentinel "+reboot" and "-sdown" events.
+	// Calls onNodeRestart(addr) when a replica comes back up so the operator can
+	// re-provision ACLs only on that node. No-op for non-Sentinel clients.
+	WatchNodeRestart(ctx context.Context, onNodeRestart func(addr string)) error
 	// WatchFailover subscribes to Sentinel "+switch-master" events and calls
 	// onFailover whenever a new master is elected. It reconnects automatically
 	// on disconnect and returns only when ctx is cancelled. It is a no-op for
@@ -184,6 +192,95 @@ func (c *sentinelClient) subscribeOnce(ctx context.Context, onFailover func()) e
 	}
 }
 
+// UpsertUserOnNode provisions a single ACL user on one specific Valkey node by
+// connecting directly to its address.
+func (c *sentinelClient) UpsertUserOnNode(ctx context.Context, addr, username, password string) error {
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     addr,
+		Password: c.cfg.AdminPassword,
+	})
+	defer func() { _ = rdb.Close() }()
+	return c.aclSetUser(ctx, rdb, username, password)
+}
+
+// WatchNodeRestart subscribes to Sentinel "+reboot" and "-sdown" events and
+// calls onNodeRestart(addr) when a slave (replica) comes back up.
+// Master events are handled by WatchFailover — this targets replica restarts only.
+func (c *sentinelClient) WatchNodeRestart(ctx context.Context, onNodeRestart func(addr string)) error {
+	if len(c.cfg.SentinelAddrs) == 0 {
+		return nil
+	}
+	logger := log.FromContext(ctx).WithName("valkey-node-restart-watch")
+	go func() {
+		backoff := 2 * time.Second
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+			if err := c.watchNodeRestartOnce(ctx, onNodeRestart); err != nil {
+				logger.Error(err, "Node restart watch disconnected, retrying", "backoff", backoff)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(backoff):
+					if backoff < 2*time.Minute {
+						backoff *= 2
+					}
+				}
+			} else {
+				backoff = 2 * time.Second
+			}
+		}
+	}()
+	return nil
+}
+
+// watchNodeRestartOnce opens a single Sentinel pub/sub session subscribing to
+// "+reboot" and "-sdown". Parses the payload to extract slave addresses.
+//
+// Sentinel event payload format:
+//
+//	<event> slave <addr> <ip> <port> @ <master-name> <master-ip> <master-port>
+//
+// We only act on "slave" role events (not "master" or "sentinel").
+func (c *sentinelClient) watchNodeRestartOnce(ctx context.Context, onNodeRestart func(addr string)) error {
+	logger := log.FromContext(ctx).WithName("valkey-node-restart-watch")
+	sc := redis.NewSentinelClient(&redis.Options{
+		Addr:     c.cfg.SentinelAddrs[0],
+		Password: c.cfg.AdminPassword,
+	})
+	ps := sc.Subscribe(ctx, "+reboot", "-sdown")
+	defer func() { _ = sc.Close(); _ = ps.Close() }()
+	logger.Info("Subscribed to Sentinel node-restart events (+reboot, -sdown)")
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case msg, ok := <-ps.Channel():
+			if !ok {
+				return fmt.Errorf("channel closed")
+			}
+			addr, role := parseSentinelInstanceEvent(msg.Payload)
+			if role != "slave" || addr == "" {
+				continue // ignore master/sentinel events
+			}
+			logger.Info("Replica back online, triggering targeted ACL re-provision",
+				"event", msg.Channel, "addr", addr)
+			onNodeRestart(addr)
+		}
+	}
+}
+
+// parseSentinelInstanceEvent extracts the role and addr from a Sentinel event payload.
+// Format: "<role> <addr> <ip> <port> @ <master-name> <master-ip> <master-port>"
+func parseSentinelInstanceEvent(payload string) (addr, role string) {
+	parts := strings.Fields(payload)
+	if len(parts) < 4 {
+		return "", ""
+	}
+	return parts[1], parts[0] // addr is "ip:port", role is "slave"/"master"/"sentinel"
+}
+
 // FailoverEventHook is called by WatchFailover on each detected failover event.
 // Used by main.go to increment the sentinel_failovers_total metric without
 // creating a dependency between the valkey and controller packages.
@@ -274,8 +371,10 @@ func (c *sentinelClient) sentinelReplicas(ctx context.Context) ([]map[string]str
 // configuration is absent (e.g., local development or auth not yet enabled).
 type NoopClient struct{}
 
-func (NoopClient) UpsertUser(_ context.Context, _, _ string) error      { return nil }
-func (NoopClient) DeleteUser(_ context.Context, _ string) error         { return nil }
-func (NoopClient) UserExists(_ context.Context, _ string) (bool, error) { return false, nil }
-func (NoopClient) WatchFailover(_ context.Context, _ func()) error      { return nil }
-func (NoopClient) Close() error                                         { return nil }
+func (NoopClient) UpsertUser(_ context.Context, _, _ string) error          { return nil }
+func (NoopClient) UpsertUserOnNode(_ context.Context, _, _, _ string) error { return nil }
+func (NoopClient) DeleteUser(_ context.Context, _ string) error             { return nil }
+func (NoopClient) UserExists(_ context.Context, _ string) (bool, error)     { return false, nil }
+func (NoopClient) WatchFailover(_ context.Context, _ func()) error          { return nil }
+func (NoopClient) WatchNodeRestart(_ context.Context, _ func(string)) error { return nil }
+func (NoopClient) Close() error                                             { return nil }
