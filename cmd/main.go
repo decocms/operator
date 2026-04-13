@@ -114,7 +114,7 @@ func main() {
 		"Subscribe to Sentinel +switch-master events and trigger immediate ACL resync on failover. "+
 			"Enabled by default when VALKEY_SENTINEL_URLS is set. Set VALKEY_WATCH_FAILOVER=false to disable.")
 	opts := zap.Options{
-		Development: true,
+		Development: false,
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
