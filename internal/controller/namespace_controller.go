@@ -52,7 +52,7 @@ const (
 )
 
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups=serving.knative.dev,resources=services,verbs=get;list;watch;update;patch
 
 // DefaultResyncPeriod is the default interval at which the reconciler re-syncs
@@ -148,9 +148,13 @@ func (r *NamespaceReconciler) InitMetrics(ctx context.Context) error {
 			continue
 		}
 		secret := &corev1.Secret{}
-		if err := r.Get(ctx, types.NamespacedName{Name: valkeySecretName, Namespace: ns.Name}, secret); err == nil {
-			count++
+		if err := r.Get(ctx, types.NamespacedName{Name: valkeySecretName, Namespace: ns.Name}, secret); err != nil {
+			if !errors.IsNotFound(err) {
+				return fmt.Errorf("reading secret in %s: %w", ns.Name, err)
+			}
+			continue
 		}
+		count++
 	}
 	valkeyTenantsProvisioned.Set(count)
 	return nil

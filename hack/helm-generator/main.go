@@ -198,7 +198,13 @@ func addEnvVarsToDeployment(templatesDir string) error {
           value: {{ .Values.valkey.sentinelUrls | quote }}
         - name: VALKEY_SENTINEL_MASTER_NAME
           value: {{ .Values.valkey.sentinelMasterName | quote }}
-        {{- if .Values.valkey.adminPassword }}
+        {{- if .Values.valkey.existingSecret }}
+        - name: VALKEY_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.valkey.existingSecret | quote }}
+              key: {{ .Values.valkey.existingSecretKey | quote }}
+        {{- else if .Values.valkey.adminPassword }}
         - name: VALKEY_ADMIN_PASSWORD
           value: {{ .Values.valkey.adminPassword | quote }}
         {{- end }}

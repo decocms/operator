@@ -22,7 +22,11 @@ github:
 valkey:
   sentinelUrls: ""
   sentinelMasterName: "mymaster"
+  # adminPassword: inline value (not recommended for production).
+  # Use existingSecret + existingSecretKey to source from a K8s Secret instead.
   adminPassword: ""
+  existingSecret: ""
+  existingSecretKey: "password"
 
 # Resource limits and requests
 resources:
