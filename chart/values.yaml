@@ -8,7 +8,7 @@ image:
   pullPolicy: IfNotPresent
 
 # Number of replicas
-replicaCount: 1
+replicaCount: 2
 
 # GitHub token for private repositories (optional)
 # If not set, operator will only work with public repos

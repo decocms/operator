@@ -122,6 +122,7 @@ func applySubstitutions(content string) string {
 	replacements := map[string]string{
 		`image: controller:latest`:                        `image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"`,
 		`image: ghcr.io/decocms/operator:latest`:          `image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"`,
+		`  replicas: 1`:                                   `  replicas: {{ .Values.replicaCount }}`,
 		`namespace: operator-system`:                      `namespace: {{ .Release.Namespace }}`,
 		`namespace: system`:                               `namespace: {{ .Release.Namespace }}`,
 		`name: operator-controller-manager`:               `name: {{ .Release.Name }}-controller-manager`,
