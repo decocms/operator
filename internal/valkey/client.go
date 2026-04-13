@@ -60,9 +60,7 @@ type Config struct {
 type sentinelClient struct {
 	// master handles writes and ACL operations via Sentinel leader election.
 	master *redis.Client
-	// sentinel is used to discover all replica addresses.
-	sentinel *redis.SentinelClient
-	cfg      Config
+	cfg    Config
 }
 
 // NewDirectClient returns a Client with a direct connection to a single Valkey instance.
@@ -83,11 +81,7 @@ func NewSentinelClient(cfg Config) Client {
 		SentinelAddrs: cfg.SentinelAddrs,
 		Password:      cfg.AdminPassword,
 	})
-	sentinel := redis.NewSentinelClient(&redis.Options{
-		Addr:     cfg.SentinelAddrs[0],
-		Password: cfg.AdminPassword,
-	})
-	return &sentinelClient{master: master, sentinel: sentinel, cfg: cfg}
+	return &sentinelClient{master: master, cfg: cfg}
 }
 
 // UpsertUser provisions a per-tenant ACL user on the master and all replicas.
@@ -134,7 +128,7 @@ func (c *sentinelClient) UserExists(ctx context.Context, username string) (bool,
 // automatically. Safe to call even if Sentinel is temporarily unavailable —
 // errors are logged and retried with backoff, never propagated to the caller.
 func (c *sentinelClient) WatchFailover(ctx context.Context, onFailover func()) error {
-	if c.sentinel == nil {
+	if len(c.cfg.SentinelAddrs) == 0 {
 		return nil // direct client — no Sentinel to watch
 	}
 	logger := log.FromContext(ctx).WithName("valkey-failover-watch")
@@ -166,7 +160,13 @@ func (c *sentinelClient) WatchFailover(ctx context.Context, onFailover func()) e
 // or ctx is cancelled. It calls onFailover for each +switch-master event received.
 func (c *sentinelClient) subscribeOnce(ctx context.Context, onFailover func()) error {
 	logger := log.FromContext(ctx).WithName("valkey-failover-watch")
-	ps := c.sentinel.Subscribe(ctx, "+switch-master")
+	// Connect to the first reachable sentinel for pub/sub.
+	sc := redis.NewSentinelClient(&redis.Options{
+		Addr:     c.cfg.SentinelAddrs[0],
+		Password: c.cfg.AdminPassword,
+	})
+	ps := sc.Subscribe(ctx, "+switch-master")
+	defer func() { _ = sc.Close(); _ = ps.Close() }()
 	defer func() { _ = ps.Close() }()
 	logger.Info("Subscribed to Sentinel +switch-master events")
 	for {
@@ -191,9 +191,6 @@ type FailoverEventHook func()
 
 // Close closes all underlying connections.
 func (c *sentinelClient) Close() error {
-	if c.sentinel != nil {
-		_ = c.sentinel.Close()
-	}
 	return c.master.Close()
 }
 
@@ -225,29 +222,52 @@ func (c *sentinelClient) rdo(ctx context.Context, rdb *redis.Client, args ...int
 }
 
 // forEachReplica discovers all current replicas via Sentinel and runs fn on each.
-// Errors from individual replicas are logged but do not abort the loop — a
-// best-effort approach ensures a single unreachable replica doesn't block provisioning.
+// It tries each sentinel address until one responds, avoiding a single point of
+// failure. All replica errors are collected and logged; provisioning continues
+// even if individual replicas are unreachable.
 func (c *sentinelClient) forEachReplica(ctx context.Context, fn func(*redis.Client) error) error {
-	if c.sentinel == nil {
+	if len(c.cfg.SentinelAddrs) == 0 {
 		return nil // direct client — no replicas to discover
 	}
-	replicas, err := c.sentinel.Replicas(ctx, c.cfg.MasterName).Result()
+	logger := log.FromContext(ctx)
+
+	replicas, err := c.sentinelReplicas(ctx)
 	if err != nil {
-		return fmt.Errorf("sentinel replicas: %w", err)
+		return fmt.Errorf("discover replicas: %w", err)
 	}
-	var lastErr error
+
+	var errs []error
 	for _, r := range replicas {
 		addr := r["ip"] + ":" + r["port"]
 		rdb := redis.NewClient(&redis.Options{
 			Addr:     addr,
 			Password: c.cfg.AdminPassword,
 		})
-		if err := fn(rdb); err != nil {
-			lastErr = err
+		if fnErr := fn(rdb); fnErr != nil {
+			logger.Error(fnErr, "ACL operation failed on replica", "addr", addr)
+			errs = append(errs, fmt.Errorf("replica %s: %w", addr, fnErr))
 		}
 		_ = rdb.Close()
 	}
-	return lastErr
+	return errors.Join(errs...)
+}
+
+// sentinelReplicas queries each sentinel address until one returns the replica list.
+func (c *sentinelClient) sentinelReplicas(ctx context.Context) ([]map[string]string, error) {
+	var lastErr error
+	for _, addr := range c.cfg.SentinelAddrs {
+		sc := redis.NewSentinelClient(&redis.Options{
+			Addr:     addr,
+			Password: c.cfg.AdminPassword,
+		})
+		replicas, err := sc.Replicas(ctx, c.cfg.MasterName).Result()
+		_ = sc.Close()
+		if err == nil {
+			return replicas, nil
+		}
+		lastErr = err
+	}
+	return nil, fmt.Errorf("all sentinels unreachable: %w", lastErr)
 }
 
 // NoopClient is a Client implementation that does nothing, used when Valkey

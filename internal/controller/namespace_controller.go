@@ -270,11 +270,25 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		//   - Replica replacement or restart
 		//   - Sentinel failover (new master starts without ACLs)
 		password := string(secret.Data["LOADER_CACHE_REDIS_PASSWORD"])
+		if password == "" {
+			log.Error(nil, "valkey-acl Secret has empty password, skipping ACL sync", "namespace", ns.Name)
+			return ctrl.Result{RequeueAfter: r.ResyncPeriod}, nil
+		}
+		existed, checkErr := r.ValkeyClient.UserExists(ctx, siteName)
+		if checkErr != nil {
+			valkeyACLErrors.WithLabelValues("check").Inc()
+			return ctrl.Result{}, fmt.Errorf("check Valkey user: %w", checkErr)
+		}
 		if upsertErr := r.ValkeyClient.UpsertUser(ctx, siteName, password); upsertErr != nil {
 			valkeyACLErrors.WithLabelValues("upsert").Inc()
 			return ctrl.Result{}, fmt.Errorf("sync Valkey user: %w", upsertErr)
 		}
-		log.V(1).Info("Valkey ACL synced to all nodes", "user", siteName)
+		if !existed {
+			valkeyACLSelfHealed.Inc()
+			log.Info("Valkey ACL user re-provisioned (self-heal)", "user", siteName)
+		} else {
+			log.V(1).Info("Valkey ACL synced to all nodes", "user", siteName)
+		}
 	}
 
 	// Requeue periodically to sync ACLs to all Valkey nodes.
