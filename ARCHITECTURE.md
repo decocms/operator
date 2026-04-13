@@ -494,6 +494,101 @@ graph TB
     Helm --> K8s
 ```
 
+---
+
+## Valkey ACL Provisioning
+
+Per-tenant cache isolation enforced at the Valkey protocol level.
+Each site namespace gets a dedicated ACL user restricted to `~{site}:*` key patterns.
+
+### Flow: Initial Provisioning
+
+```mermaid
+sequenceDiagram
+    participant GitOps as GitOps / Bootstrap
+    participant K8s as Kubernetes API
+    participant Ctrl as NamespaceReconciler
+    participant Valkey as Valkey (all nodes)
+    participant Webhook as Mutating Webhook
+    participant Pod as Site Pod
+
+    GitOps->>K8s: kubectl annotate ns sites-loja<br/>deco.sites/valkey-acl=true
+    K8s->>Ctrl: Reconcile Event
+    Ctrl->>Ctrl: Generate random password
+    Ctrl->>Valkey: ACL SETUSER loja on >pass ~loja:* ~lock:loja:*<br/>(master + all replicas via Sentinel discovery)
+    Ctrl->>K8s: Create Secret "valkey-acl" in sites-loja<br/>LOADER_CACHE_REDIS_USERNAME=loja<br/>LOADER_CACHE_REDIS_PASSWORD=<pass>
+    Ctrl->>K8s: Patch ksvc spec.template.annotations<br/>(triggers new Knative Revision)
+    K8s->>Webhook: Intercept ksvc update
+    Webhook->>K8s: Inject envFrom: secretRef: valkey-acl (optional=true)
+    K8s->>Pod: New pod starts with credentials
+    Pod->>Valkey: AUTH loja <pass> → reads/writes only ~loja:*
+```
+
+### Flow: Sentinel Failover Recovery
+
+```mermaid
+sequenceDiagram
+    participant Sentinel as Valkey Sentinel
+    participant Ctrl as NamespaceReconciler
+    participant PubSub as +switch-master channel
+    participant Valkey as New Master + Replicas
+
+    Note over Sentinel: Master fails
+    Sentinel->>Sentinel: Elect new master (quorum)
+    Sentinel->>PubSub: Publish +switch-master event
+    PubSub->>Ctrl: WatchFailover() receives event
+    Ctrl->>Ctrl: RecordSentinelFailover() metric++
+    Ctrl->>Ctrl: TriggerResyncAll() — patch all annotated namespaces
+    loop For each managed namespace
+        Ctrl->>Valkey: ACL SETUSER (master + all replicas)
+    end
+    Note over Ctrl: Recovery in seconds, not minutes
+```
+
+### ACL Replication Caveat
+
+Valkey does **not** replicate `ACL SETUSER` commands to replicas.
+The operator handles this by running ACL commands on every node individually:
+
+```
+UpsertUser(ctx, username, password)
+  ├── ACL SETUSER on master       (via Sentinel FailoverClient)
+  ├── ACL SETUSER on replica-1    (direct connection, discovered via SENTINEL REPLICAS)
+  └── ACL SETUSER on replica-N
+```
+
+This ensures all nodes (master and read replicas) are always in sync,
+which is required because site pods use a separate read-replica endpoint.
+
+### Periodic Resync
+
+The reconciler requeues every namespace on a configurable interval (default: 10min)
+to ensure ACLs stay in sync after any undetected node restart.
+
+```
+VALKEY_ACL_RESYNC_PERIOD=10m  # env var or --valkey-acl-resync-period flag
+```
+
+To force immediate resync of all managed namespaces:
+
+```bash
+kubectl annotate ns -l deco.sites/valkey-acl=true \
+  deco.sites/valkey-acl-sync=$(date +%s) --overwrite
+```
+
+### Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `deco_operator_valkey_acl_provisioned_total` | Counter | ACL users provisioned |
+| `deco_operator_valkey_acl_deleted_total` | Counter | ACL users deleted on namespace removal |
+| `deco_operator_valkey_acl_errors_total{operation}` | Counter | Errors by operation (upsert/delete/check) |
+| `deco_operator_valkey_acl_self_healed_total` | Counter | Re-provisions after ACL loss |
+| `deco_operator_valkey_tenants_provisioned` | Gauge | Current provisioned tenants (seeded on startup) |
+| `deco_operator_valkey_sentinel_failovers_total` | Counter | Sentinel +switch-master events detected |
+
+---
+
 ## Summary
 
 The Deco CMS Operator provides:
@@ -504,7 +599,6 @@ The Deco CMS Operator provides:
 4. **Reliable Notifications**: Parallel, time-bounded, with retries
 5. **Deterministic Updates**: Timestamp-based verification
 6. **Trackable Rollouts**: Watch conditions with commit/timestamp
-7. **Production Ready**: Handles scale, failures, and edge cases
-
-**All with zero configuration required from users!** 🚀
+7. **Per-tenant Cache Isolation**: Valkey ACL per site, enforced at protocol level
+8. **Production Ready**: Handles scale, failures, and edge cases
 

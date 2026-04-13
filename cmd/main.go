@@ -17,10 +17,14 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -33,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -41,6 +46,7 @@ import (
 
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
 	"github.com/deco-sites/decofile-operator/internal/controller"
+	"github.com/deco-sites/decofile-operator/internal/valkey"
 	webhookv1 "github.com/deco-sites/decofile-operator/internal/webhook/v1"
 	// +kubebuilder:scaffold:imports
 )
@@ -68,6 +74,12 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
+	var valkeyURL string
+	var valkeySentinelURLs string
+	var valkeySentinelMaster string
+	var valkeyAdminPassword string
+	var valkeyResyncPeriod time.Duration
+	var valkeyWatchFailover bool
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -85,6 +97,22 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.StringVar(&valkeyURL, "valkey-url", os.Getenv("VALKEY_URL"),
+		"Direct Valkey address (host:port). Takes precedence over sentinel. For local dev only.")
+	flag.StringVar(&valkeySentinelURLs, "valkey-sentinel-urls", os.Getenv("VALKEY_SENTINEL_URLS"),
+		"Comma-separated list of Valkey Sentinel addresses (host:port). When empty, ACL provisioning is disabled.")
+	flag.StringVar(&valkeySentinelMaster, "valkey-sentinel-master",
+		getEnvOrDefault("VALKEY_SENTINEL_MASTER_NAME", "mymaster"),
+		"Valkey Sentinel master name.")
+	flag.StringVar(&valkeyAdminPassword, "valkey-admin-password", os.Getenv("VALKEY_ADMIN_PASSWORD"),
+		"Password for the Valkey admin user used to manage ACLs.")
+	flag.DurationVar(&valkeyResyncPeriod, "valkey-acl-resync-period",
+		parseDuration(os.Getenv("VALKEY_ACL_RESYNC_PERIOD"), controller.DefaultResyncPeriod),
+		"How often to re-sync ACL users to all Valkey nodes (e.g. 10m, 30m, 1h).")
+	flag.BoolVar(&valkeyWatchFailover, "valkey-watch-failover",
+		os.Getenv("VALKEY_WATCH_FAILOVER") != "false",
+		"Subscribe to Sentinel +switch-master events and trigger immediate ACL resync on failover. "+
+			"Enabled by default when VALKEY_SENTINEL_URLS is set. Set VALKEY_WATCH_FAILOVER=false to disable.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -206,6 +234,66 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Build Valkey client. Falls back to a no-op client when Sentinel URLs are not configured
+	// so the operator works in environments where Valkey ACL provisioning is not needed.
+	var valkeyClient valkey.Client
+	switch {
+	case valkeyURL != "":
+		valkeyClient = valkey.NewDirectClient(valkeyURL, valkeyAdminPassword)
+		defer func() { _ = valkeyClient.Close() }()
+		setupLog.Info("Valkey ACL provisioning enabled (direct)", "addr", valkeyURL)
+	case valkeySentinelURLs != "":
+		valkeyClient = valkey.NewSentinelClient(valkey.Config{
+			SentinelAddrs: strings.Split(valkeySentinelURLs, ","),
+			MasterName:    valkeySentinelMaster,
+			AdminPassword: valkeyAdminPassword,
+		})
+		defer func() { _ = valkeyClient.Close() }()
+		setupLog.Info("Valkey ACL provisioning enabled (sentinel)",
+			"sentinel", valkeySentinelURLs, "master", valkeySentinelMaster)
+	default:
+		valkeyClient = valkey.NoopClient{}
+		setupLog.Info("Valkey ACL provisioning disabled (set VALKEY_URL or VALKEY_SENTINEL_URLS)")
+	}
+
+	nsReconciler := &controller.NamespaceReconciler{
+		Client:       mgr.GetClient(),
+		Scheme:       mgr.GetScheme(),
+		ValkeyClient: valkeyClient,
+		ResyncPeriod: valkeyResyncPeriod,
+	}
+	if err := nsReconciler.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Namespace")
+		os.Exit(1)
+	}
+	// Start Sentinel failover watcher if enabled and Sentinel is configured.
+	// leaderElectedRunnable ensures only the active leader subscribes — prevents
+	// redundant TriggerResyncAll calls from non-leader replicas.
+	// Fail-safe: if subscription fails, operator continues with periodic resync.
+	if valkeyWatchFailover && valkeySentinelURLs != "" {
+		if err := mgr.Add(&leaderElectedRunnable{fn: func(ctx context.Context) error {
+			return valkeyClient.WatchFailover(ctx, func() {
+				controller.RecordSentinelFailover()
+				nsReconciler.TriggerResyncAll(ctx)
+			})
+		}}); err != nil {
+			setupLog.Error(err, "unable to add Sentinel failover watcher (non-fatal)")
+		} else {
+			setupLog.Info("Sentinel failover watcher enabled")
+		}
+	}
+
+	// Seed the tenants_provisioned gauge from current cluster state once the cache is warm.
+	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		if !mgr.GetCache().WaitForCacheSync(ctx) {
+			return fmt.Errorf("cache never synced")
+		}
+		return nsReconciler.InitMetrics(ctx)
+	})); err != nil {
+		setupLog.Error(err, "unable to add metrics init runnable")
+		os.Exit(1)
+	}
+
 	// Create shared HTTP client for pod notifications to prevent connection leaks
 	httpClient := controller.NewHTTPClient()
 
@@ -260,4 +348,37 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// leaderElectedRunnable wraps a function so it only runs on the active leader.
+// controller-runtime starts Runnables on all replicas by default; implementing
+// NeedLeaderElection() restricts execution to the leader pod.
+type leaderElectedRunnable struct {
+	fn func(ctx context.Context) error
+}
+
+func (r *leaderElectedRunnable) Start(ctx context.Context) error {
+	return r.fn(ctx)
+}
+
+func (r *leaderElectedRunnable) NeedLeaderElection() bool {
+	return true
+}
+
+func parseDuration(s string, fallback time.Duration) time.Duration {
+	if s == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return fallback
+	}
+	return d
+}
+
+func getEnvOrDefault(key, defaultVal string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return defaultVal
 }
