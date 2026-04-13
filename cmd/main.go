@@ -79,6 +79,7 @@ func main() {
 	var valkeySentinelMaster string
 	var valkeyAdminPassword string
 	var valkeyResyncPeriod time.Duration
+	var valkeyWatchFailover bool
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -108,6 +109,10 @@ func main() {
 	flag.DurationVar(&valkeyResyncPeriod, "valkey-acl-resync-period",
 		parseDuration(os.Getenv("VALKEY_ACL_RESYNC_PERIOD"), controller.DefaultResyncPeriod),
 		"How often to re-sync ACL users to all Valkey nodes (e.g. 10m, 30m, 1h).")
+	flag.BoolVar(&valkeyWatchFailover, "valkey-watch-failover",
+		os.Getenv("VALKEY_WATCH_FAILOVER") != "false",
+		"Subscribe to Sentinel +switch-master events and trigger immediate ACL resync on failover. "+
+			"Enabled by default when VALKEY_SENTINEL_URLS is set. Set VALKEY_WATCH_FAILOVER=false to disable.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -261,6 +266,21 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Namespace")
 		os.Exit(1)
 	}
+	// Start Sentinel failover watcher if enabled and Sentinel is configured.
+	// Fail-safe: if subscription fails, operator continues with periodic resync.
+	if valkeyWatchFailover && valkeySentinelURLs != "" {
+		if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+			return valkeyClient.WatchFailover(ctx, func() {
+				controller.RecordSentinelFailover()
+				nsReconciler.TriggerResyncAll(ctx)
+			})
+		})); err != nil {
+			setupLog.Error(err, "unable to add Sentinel failover watcher (non-fatal)")
+		} else {
+			setupLog.Info("Sentinel failover watcher enabled")
+		}
+	}
+
 	// Seed the tenants_provisioned gauge from current cluster state once the cache is warm.
 	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
 		if !mgr.GetCache().WaitForCacheSync(ctx) {

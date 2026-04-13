@@ -61,7 +61,22 @@ var (
 		Name:      "tenants_provisioned",
 		Help:      "Current number of site namespaces with a provisioned Valkey ACL user.",
 	})
+
+	// valkeySentinelFailovers counts Sentinel +switch-master events received.
+	// Each event triggers an immediate full ACL resync to all nodes.
+	valkeySentinelFailovers = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "deco_operator",
+		Subsystem: "valkey",
+		Name:      "sentinel_failovers_total",
+		Help:      "Total number of Sentinel master failovers detected via +switch-master pub/sub.",
+	})
 )
+
+// RecordSentinelFailover increments the sentinel_failovers_total counter.
+// Called from main.go when a +switch-master event is received.
+func RecordSentinelFailover() {
+	valkeySentinelFailovers.Inc()
+}
 
 func init() {
 	metrics.Registry.MustRegister(
@@ -70,5 +85,6 @@ func init() {
 		valkeyACLErrors,
 		valkeyACLSelfHealed,
 		valkeyTenantsProvisioned,
+		valkeySentinelFailovers,
 	)
 }

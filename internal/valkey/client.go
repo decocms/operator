@@ -21,8 +21,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/redis/go-redis/v9"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // Client manages Valkey ACL users for tenant isolation.
@@ -33,6 +35,12 @@ type Client interface {
 	DeleteUser(ctx context.Context, username string) error
 	// UserExists checks whether a Valkey ACL user exists on the master.
 	UserExists(ctx context.Context, username string) (bool, error)
+	// WatchFailover subscribes to Sentinel "+switch-master" events and calls
+	// onFailover whenever a new master is elected. It reconnects automatically
+	// on disconnect and returns only when ctx is cancelled. It is a no-op for
+	// non-Sentinel clients. Errors are non-fatal — if Sentinel is unreachable
+	// the operator continues with its periodic resync.
+	WatchFailover(ctx context.Context, onFailover func()) error
 	// Close releases the underlying connection.
 	Close() error
 }
@@ -121,6 +129,66 @@ func (c *sentinelClient) UserExists(ctx context.Context, username string) (bool,
 	return false, fmt.Errorf("ACL GETUSER %s: %w", username, err)
 }
 
+// WatchFailover subscribes to the Sentinel "+switch-master" pub/sub channel.
+// It calls onFailover whenever a master election is detected, then reconnects
+// automatically. Safe to call even if Sentinel is temporarily unavailable —
+// errors are logged and retried with backoff, never propagated to the caller.
+func (c *sentinelClient) WatchFailover(ctx context.Context, onFailover func()) error {
+	if c.sentinel == nil {
+		return nil // direct client — no Sentinel to watch
+	}
+	logger := log.FromContext(ctx).WithName("valkey-failover-watch")
+	go func() {
+		backoff := 2 * time.Second
+		for {
+			if err := ctx.Err(); err != nil {
+				return
+			}
+			if err := c.subscribeOnce(ctx, onFailover); err != nil {
+				logger.Error(err, "Sentinel pub/sub disconnected, retrying", "backoff", backoff)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(backoff):
+					if backoff < 2*time.Minute {
+						backoff *= 2
+					}
+				}
+			} else {
+				backoff = 2 * time.Second // reset on clean exit
+			}
+		}
+	}()
+	return nil
+}
+
+// subscribeOnce opens one pub/sub session and blocks until the connection drops
+// or ctx is cancelled. It calls onFailover for each +switch-master event received.
+func (c *sentinelClient) subscribeOnce(ctx context.Context, onFailover func()) error {
+	logger := log.FromContext(ctx).WithName("valkey-failover-watch")
+	ps := c.sentinel.Subscribe(ctx, "+switch-master")
+	defer func() { _ = ps.Close() }()
+	logger.Info("Subscribed to Sentinel +switch-master events")
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case msg, ok := <-ps.Channel():
+			if !ok {
+				return fmt.Errorf("channel closed")
+			}
+			logger.Info("Sentinel failover detected, triggering ACL resync",
+				"event", msg.Payload)
+			onFailover()
+		}
+	}
+}
+
+// FailoverEventHook is called by WatchFailover on each detected failover event.
+// Used by main.go to increment the sentinel_failovers_total metric without
+// creating a dependency between the valkey and controller packages.
+type FailoverEventHook func()
+
 // Close closes all underlying connections.
 func (c *sentinelClient) Close() error {
 	if c.sentinel != nil {
@@ -186,9 +254,8 @@ func (c *sentinelClient) forEachReplica(ctx context.Context, fn func(*redis.Clie
 // configuration is absent (e.g., local development or auth not yet enabled).
 type NoopClient struct{}
 
-func (NoopClient) UpsertUser(_ context.Context, _, _ string) error { return nil }
-func (NoopClient) DeleteUser(_ context.Context, _ string) error    { return nil }
-func (NoopClient) UserExists(_ context.Context, _ string) (bool, error) {
-	return false, nil
-}
-func (NoopClient) Close() error { return nil }
+func (NoopClient) UpsertUser(_ context.Context, _, _ string) error         { return nil }
+func (NoopClient) DeleteUser(_ context.Context, _ string) error            { return nil }
+func (NoopClient) UserExists(_ context.Context, _ string) (bool, error)    { return false, nil }
+func (NoopClient) WatchFailover(_ context.Context, _ func()) error         { return nil }
+func (NoopClient) Close() error                                            { return nil }

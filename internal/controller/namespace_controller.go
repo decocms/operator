@@ -101,6 +101,37 @@ type NamespaceReconciler struct {
 	ResyncPeriod time.Duration
 }
 
+// TriggerResyncAll immediately re-queues all managed namespaces by updating a
+// sync annotation. Called on Sentinel failover events to recover ACLs without
+// waiting for the next periodic resync cycle.
+func (r *NamespaceReconciler) TriggerResyncAll(ctx context.Context) {
+	log := logf.FromContext(ctx).WithName("valkey-resync")
+	nsList := &corev1.NamespaceList{}
+	if err := r.List(ctx, nsList); err != nil {
+		log.Error(err, "Failed to list namespaces for resync")
+		return
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	count := 0
+	for i := range nsList.Items {
+		ns := &nsList.Items[i]
+		if ns.Annotations[valkeyACLAnnotation] != "true" {
+			continue
+		}
+		patch := client.MergeFrom(ns.DeepCopy())
+		if ns.Annotations == nil {
+			ns.Annotations = make(map[string]string)
+		}
+		ns.Annotations["deco.sites/valkey-acl-sync"] = now
+		if err := r.Patch(ctx, ns, patch); err != nil {
+			log.Error(err, "Failed to patch namespace for resync", "namespace", ns.Name)
+			continue
+		}
+		count++
+	}
+	log.Info("Triggered ACL resync on all managed namespaces", "count", count)
+}
+
 // InitMetrics seeds the tenants_provisioned gauge from current cluster state.
 // Must be called after the cache is synced (i.e. inside a Runnable or after mgr.Start).
 func (r *NamespaceReconciler) InitMetrics(ctx context.Context) error {
