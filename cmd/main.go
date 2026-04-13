@@ -267,14 +267,16 @@ func main() {
 		os.Exit(1)
 	}
 	// Start Sentinel failover watcher if enabled and Sentinel is configured.
+	// leaderElectedRunnable ensures only the active leader subscribes — prevents
+	// redundant TriggerResyncAll calls from non-leader replicas.
 	// Fail-safe: if subscription fails, operator continues with periodic resync.
 	if valkeyWatchFailover && valkeySentinelURLs != "" {
-		if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		if err := mgr.Add(&leaderElectedRunnable{fn: func(ctx context.Context) error {
 			return valkeyClient.WatchFailover(ctx, func() {
 				controller.RecordSentinelFailover()
 				nsReconciler.TriggerResyncAll(ctx)
 			})
-		})); err != nil {
+		}}); err != nil {
 			setupLog.Error(err, "unable to add Sentinel failover watcher (non-fatal)")
 		} else {
 			setupLog.Info("Sentinel failover watcher enabled")
@@ -346,6 +348,21 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// leaderElectedRunnable wraps a function so it only runs on the active leader.
+// controller-runtime starts Runnables on all replicas by default; implementing
+// NeedLeaderElection() restricts execution to the leader pod.
+type leaderElectedRunnable struct {
+	fn func(ctx context.Context) error
+}
+
+func (r *leaderElectedRunnable) Start(ctx context.Context) error {
+	return r.fn(ctx)
+}
+
+func (r *leaderElectedRunnable) NeedLeaderElection() bool {
+	return true
 }
 
 func parseDuration(s string, fallback time.Duration) time.Duration {
