@@ -61,6 +61,34 @@ const (
 //   - Creates a K8s Secret "valkey-acl" in that namespace with the credentials.
 //   - Patches the Knative Service to trigger a new Revision that picks up the Secret.
 //   - Cleans up the Valkey ACL user when the namespace is deleted.
+//
+// # What triggers a reconcile
+//
+//   - Namespace created or annotated with deco.sites/valkey-acl: "true"
+//   - Secret "valkey-acl" deleted in a managed namespace (via Watches)
+//   - Periodic requeue (RequeueAfter: 10min) for self-healing after Valkey restarts
+//
+// To force an immediate full resync of all managed namespaces (e.g. after a Valkey
+// failover), touch all annotated namespaces to trigger reconcile on each:
+//
+//	kubectl annotate ns -l deco.sites/valkey-acl=true \
+//	  deco.sites/valkey-acl-sync=$(date +%s) --overwrite
+//
+// # ACL replication caveat
+//
+// Valkey does NOT replicate ACL commands (ACL SETUSER/DELUSER) to replicas.
+// The operator runs ACL commands only on the current Sentinel master. This means:
+//
+//  1. After a Sentinel failover, the new master starts without per-tenant ACLs.
+//     The periodic reconcile (10min) detects this and re-provisions all users.
+//     During the recovery window, deco falls back to FILE_SYSTEM cache.
+//
+//  2. Read replicas used by pods (LOADER_CACHE_REDIS_READ_URL) also lack the
+//     per-tenant ACL users. This is not enforced today (auth.enabled: false),
+//     but MUST be addressed before enabling Valkey auth in production.
+//
+// TODO: when enabling auth, extend ValkeyClient to provision ACL SETUSER on
+// all nodes (master + every replica), not only the Sentinel master.
 type NamespaceReconciler struct {
 	client.Client
 	Scheme       *runtime.Scheme
