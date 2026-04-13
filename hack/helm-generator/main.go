@@ -187,26 +187,28 @@ func addEnvVarsToDeployment(templatesDir string) error {
 	contentStr := string(content)
 
 	// Find the image line and add env vars after it
-	envBlock := `        {{- if or .Values.github.token .Values.valkey.sentinelUrls }}
+	envBlock := `        {{- if or .Values.github.token (and .Values.valkey (get .Values.valkey "sentinelUrls")) }}
         env:
         {{- if .Values.github.token }}
         - name: GITHUB_TOKEN
           value: {{ .Values.github.token | quote }}
         {{- end }}
-        {{- if .Values.valkey.sentinelUrls }}
+        {{- with .Values.valkey }}
+        {{- if .sentinelUrls }}
         - name: VALKEY_SENTINEL_URLS
-          value: {{ .Values.valkey.sentinelUrls | quote }}
+          value: {{ .sentinelUrls | quote }}
         - name: VALKEY_SENTINEL_MASTER_NAME
-          value: {{ .Values.valkey.sentinelMasterName | quote }}
-        {{- if .Values.valkey.existingSecret }}
+          value: {{ .sentinelMasterName | quote }}
+        {{- if .existingSecret }}
         - name: VALKEY_ADMIN_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: {{ .Values.valkey.existingSecret | quote }}
-              key: {{ .Values.valkey.existingSecretKey | quote }}
-        {{- else if .Values.valkey.adminPassword }}
+              name: {{ .existingSecret | quote }}
+              key: {{ .existingSecretKey | quote }}
+        {{- else if .adminPassword }}
         - name: VALKEY_ADMIN_PASSWORD
-          value: {{ .Values.valkey.adminPassword | quote }}
+          value: {{ .adminPassword | quote }}
+        {{- end }}
         {{- end }}
         {{- end }}
         {{- end }}`
