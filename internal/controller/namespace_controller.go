@@ -222,24 +222,19 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, fmt.Errorf("get secret: %w", err)
 
 	default:
-		// Secret exists: verify the ACL user is present in Valkey (self-healing after restart).
-		exists, checkErr := r.ValkeyClient.UserExists(ctx, siteName)
-		if checkErr != nil {
-			valkeyACLErrors.WithLabelValues("check").Inc()
-			return ctrl.Result{}, fmt.Errorf("check Valkey user: %w", checkErr)
+		// Secret exists. Always call UpsertUser on the periodic reconcile — it is
+		// idempotent and ensures ACLs are present on ALL nodes (master + replicas).
+		// Valkey does not replicate ACL commands, so a single UpsertUser call from
+		// the operator is the only way to keep every node in sync. This also covers:
+		//   - Valkey master restart (ACLs lost from memory)
+		//   - Replica replacement or restart
+		//   - Sentinel failover (new master starts without ACLs)
+		password := string(secret.Data["LOADER_CACHE_REDIS_PASSWORD"])
+		if upsertErr := r.ValkeyClient.UpsertUser(ctx, siteName, password); upsertErr != nil {
+			valkeyACLErrors.WithLabelValues("upsert").Inc()
+			return ctrl.Result{}, fmt.Errorf("sync Valkey user: %w", upsertErr)
 		}
-		if !exists {
-			password := string(secret.Data["LOADER_CACHE_REDIS_PASSWORD"])
-			log.Info("Valkey ACL user missing, re-provisioning", "user", siteName, "reason", "Valkey restart or external deletion")
-			if upsertErr := r.ValkeyClient.UpsertUser(ctx, siteName, password); upsertErr != nil {
-				valkeyACLErrors.WithLabelValues("upsert").Inc()
-				return ctrl.Result{}, fmt.Errorf("re-upsert Valkey user: %w", upsertErr)
-			}
-			valkeyACLSelfHealed.Inc()
-			log.Info("Valkey ACL user re-provisioned", "user", siteName)
-		} else {
-			log.V(1).Info("Valkey ACL user OK", "user", siteName)
-		}
+		log.V(1).Info("Valkey ACL synced to all nodes", "user", siteName)
 	}
 
 	// Requeue periodically to self-heal ACLs lost after Valkey restarts.
