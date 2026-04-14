@@ -37,17 +37,13 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	servingknativedevv1 "knative.dev/serving/pkg/apis/serving/v1"
-
 	"github.com/deco-sites/decofile-operator/internal/valkey"
 )
 
 const (
-	valkeyACLAnnotation    = "deco.sites/valkey-acl"
-	valkeyACLFinalizer     = "deco.sites/valkey-acl"
-	valkeySecretName       = "valkey-acl"
-	valkeyProvisionedAnnot = "deco.sites/valkey-acl-provisioned"
-
+	valkeyACLAnnotation = "deco.sites/valkey-acl"
+	valkeyACLFinalizer  = "deco.sites/valkey-acl"
+	valkeySecretName    = "valkey-acl"
 	siteNamespacePrefix = "sites-"
 )
 
@@ -354,34 +350,6 @@ func (r *NamespaceReconciler) createSecret(ctx context.Context, namespace, usern
 		},
 	}
 	return r.Create(ctx, secret)
-}
-
-// patchKnativeServiceTimestamp adds/updates the "deco.sites/valkey-acl-provisioned"
-// annotation on every Knative Service in the namespace. This causes Knative to create
-// a new Revision whose pods will mount the just-created valkey-acl Secret.
-func (r *NamespaceReconciler) patchKnativeServiceTimestamp(ctx context.Context, namespace string) error {
-	log := logf.FromContext(ctx)
-
-	svcList := &servingknativedevv1.ServiceList{}
-	if err := r.List(ctx, svcList, client.InNamespace(namespace)); err != nil {
-		return fmt.Errorf("list Knative Services: %w", err)
-	}
-
-	now := time.Now().UTC().Format(time.RFC3339)
-	for i := range svcList.Items {
-		svc := &svcList.Items[i]
-		patch := client.MergeFrom(svc.DeepCopy())
-		// Must annotate spec.template, not metadata — Knative only creates a new
-		// Revision when spec.template changes.
-		if svc.Spec.Template.Annotations == nil {
-			svc.Spec.Template.Annotations = make(map[string]string)
-		}
-		svc.Spec.Template.Annotations[valkeyProvisionedAnnot] = now
-		if err := r.Patch(ctx, svc, patch); err != nil {
-			log.Error(err, "Failed to patch Knative Service", "service", svc.Name)
-		}
-	}
-	return nil
 }
 
 // reservedValkeyUsernames lists names that must never be used as per-tenant ACL
