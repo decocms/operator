@@ -128,6 +128,9 @@ func (r *NamespaceReconciler) ProvisionSingleNode(ctx context.Context, nodeAddr 
 			continue
 		}
 		siteName := siteNameFromNamespace(ns.Name)
+		if siteName == "" {
+			continue
+		}
 		if err := r.ValkeyClient.UpsertUserOnNode(ctx, nodeAddr, siteName, password); err != nil {
 			valkeyACLErrors.WithLabelValues("upsert").Inc()
 			log.Error(err, "Failed to provision ACL on node", "site", siteName)
@@ -235,6 +238,15 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	siteName := siteNameFromNamespace(ns.Name)
+	if siteName == "" {
+		// Reserved username — skip to prevent corrupting built-in Valkey users.
+		log.Info("Skipping reserved site name, removing annotation to prevent requeue",
+			"namespace", ns.Name)
+		patch := client.MergeFrom(ns.DeepCopy())
+		delete(ns.Annotations, valkeyACLAnnotation)
+		_ = r.Patch(ctx, ns, patch)
+		return ctrl.Result{}, nil
+	}
 
 	// Handle deletion: remove the Valkey ACL user before the namespace is gone.
 	if !ns.DeletionTimestamp.IsZero() {
@@ -372,10 +384,22 @@ func (r *NamespaceReconciler) patchKnativeServiceTimestamp(ctx context.Context, 
 	return nil
 }
 
+// reservedValkeyUsernames lists names that must never be used as per-tenant ACL
+// usernames because they map to built-in Valkey users or would break authentication.
+var reservedValkeyUsernames = map[string]bool{
+	"default": true,
+	"admin":   true,
+}
+
 // siteNameFromNamespace derives the Valkey ACL username from the K8s namespace name.
 // The "sites-" prefix is stripped when present so the username matches DECO_SITE_NAME.
+// Returns an empty string if the resulting name is reserved.
 func siteNameFromNamespace(namespace string) string {
-	return strings.TrimPrefix(namespace, siteNamespacePrefix)
+	name := strings.TrimPrefix(namespace, siteNamespacePrefix)
+	if reservedValkeyUsernames[name] {
+		return ""
+	}
+	return name
 }
 
 // generatePassword produces a cryptographically random 32-byte URL-safe base64 string.
