@@ -53,7 +53,7 @@ const (
 
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create
-// +kubebuilder:rbac:groups=serving.knative.dev,resources=services,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=serving.knative.dev,resources=services,verbs=get;list;watch
 
 // DefaultResyncPeriod is the default interval at which the reconciler re-syncs
 // ACL users to all Valkey nodes even when nothing changed. Configurable via
@@ -290,11 +290,6 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		valkeyACLProvisioned.Inc()
 		valkeyTenantsProvisioned.Inc()
 		log.Info("Valkey ACL provisioned", "user", siteName, "namespace", ns.Name)
-
-		// Trigger a new Knative Revision so running pods pick up the new Secret.
-		if patchErr := r.patchKnativeServiceTimestamp(ctx, ns.Name); patchErr != nil {
-			log.Error(patchErr, "Failed to patch Knative Service (non-fatal)")
-		}
 
 	case err != nil:
 		return ctrl.Result{}, fmt.Errorf("get secret: %w", err)
