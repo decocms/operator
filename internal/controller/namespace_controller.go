@@ -385,10 +385,12 @@ func (r *NamespaceReconciler) patchKnativeServiceTimestamp(ctx context.Context, 
 }
 
 // reservedValkeyUsernames lists names that must never be used as per-tenant ACL
-// usernames because they map to built-in Valkey users or would break authentication.
+// usernames. "default" is a Valkey built-in — overwriting it breaks all
+// unauthenticated connections and health probes. "redis-root" is reserved for
+// the dedicated operator admin user used when auth.enabled: true.
 var reservedValkeyUsernames = map[string]bool{
-	"default": true,
-	"admin":   true,
+	"default":    true,
+	"redis-root": true,
 }
 
 // siteNameFromNamespace derives the Valkey ACL username from the K8s namespace name.
