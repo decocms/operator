@@ -85,9 +85,10 @@ func NewDirectClient(addr, password string) Client {
 // master and all replicas.
 func NewSentinelClient(cfg Config) Client {
 	master := redis.NewFailoverClient(&redis.FailoverOptions{
-		MasterName:    cfg.MasterName,
-		SentinelAddrs: cfg.SentinelAddrs,
-		Password:      cfg.AdminPassword,
+		MasterName:       cfg.MasterName,
+		SentinelAddrs:    cfg.SentinelAddrs,
+		Password:         cfg.AdminPassword,
+		SentinelPassword: cfg.AdminPassword,
 	})
 	return &sentinelClient{master: master, cfg: cfg}
 }
