@@ -188,9 +188,15 @@ func addEnvVarsToDeployment(templatesDir string) error {
 	contentStr := string(content)
 
 	// Find the image line and add env vars after it
-	envBlock := `        {{- if or .Values.github.token (and .Values.valkey (get .Values.valkey "sentinelUrls")) }}
+	envBlock := `        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) (and .Values.valkey (get .Values.valkey "sentinelUrls")) }}
         env:
-        {{- if .Values.github.token }}
+        {{- if and .Values.github .Values.github.existingSecret }}
+        - name: GITHUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.github.existingSecret | quote }}
+              key: {{ .Values.github.existingSecretKey | default "token" | quote }}
+        {{- else if and .Values.github .Values.github.token }}
         - name: GITHUB_TOKEN
           value: {{ .Values.github.token | quote }}
         {{- end }}
