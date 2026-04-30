@@ -1,0 +1,142 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: decobuilds.deco.sites
+spec:
+  group: deco.sites
+  names:
+    kind: DecoBuild
+    listKind: DecoBuildList
+    plural: decobuilds
+    singular: decobuild
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.site
+      name: Site
+      type: string
+    - jsonPath: .spec.commitSha
+      name: Commit
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: DecoBuild is the Schema for the decobuilds API.
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: DecoBuildSpec defines the desired state of a Cloudflare Workers build.
+            properties:
+              branchRef:
+                description: Branch name used as the preview alias message (non-production only).
+                type: string
+              commitSha:
+                description: Git commit SHA to build.
+                type: string
+              compatDate:
+                description: Cloudflare compatibility date. Defaults to 2025-04-01.
+                type: string
+              entryPoint:
+                description: Worker entry file path. Defaults to src/worker-entry.ts.
+                type: string
+              githubToken:
+                description: GitHub token for cloning private repositories.
+                type: string
+              githubTokenSecret:
+                description: Name of a K8s Secret containing a "token" key with a GitHub token. Takes precedence over githubToken.
+                type: string
+              owner:
+                description: GitHub repository owner/org.
+                type: string
+              production:
+                description: When true, deploys to production. When false, creates a wrangler preview alias.
+                type: boolean
+              repo:
+                description: GitHub repository name.
+                type: string
+              site:
+                description: Deco site name (used as the Cloudflare Worker name by default).
+                type: string
+              workerName:
+                description: Cloudflare Worker name override. Defaults to site name.
+                type: string
+            required:
+            - commitSha
+            - owner
+            - repo
+            - site
+            type: object
+          status:
+            description: DecoBuildStatus defines the observed state of a DecoBuild.
+            properties:
+              completionTime:
+                description: When the build job finished.
+                format: date-time
+                type: string
+              conditions:
+                description: Latest observations of the build state.
+                items:
+                  description: Condition contains details for one aspect of the current state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              jobName:
+                description: K8s Job created for this build.
+                type: string
+              phase:
+                description: Current lifecycle phase (Pending, Running, Succeeded, Failed).
+                type: string
+              startTime:
+                description: When the build job was created.
+                format: date-time
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

@@ -45,6 +45,7 @@ import (
 	servingknativedevv1 "knative.dev/serving/pkg/apis/serving/v1"
 
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
+	"github.com/deco-sites/decofile-operator/internal/build"
 	"github.com/deco-sites/decofile-operator/internal/controller"
 	"github.com/deco-sites/decofile-operator/internal/valkey"
 	webhookv1 "github.com/deco-sites/decofile-operator/internal/webhook/v1"
@@ -113,6 +114,21 @@ func main() {
 		os.Getenv("VALKEY_WATCH_FAILOVER") != "false",
 		"Subscribe to Sentinel +switch-master events and trigger immediate ACL resync on failover. "+
 			"Enabled by default when VALKEY_SENTINEL_URLS is set. Set VALKEY_WATCH_FAILOVER=false to disable.")
+	var cfApiToken string
+	var cfAccountId string
+	var s3Region string
+	var s3AccessKeyID string
+	var s3SecretAccessKey string
+	flag.StringVar(&cfApiToken, "cf-api-token", os.Getenv("CLOUDFLARE_API_WORKERS_TOKEN"),
+		"Cloudflare Workers API token for build deployments.")
+	flag.StringVar(&cfAccountId, "cf-account-id", os.Getenv("CLOUDFLARE_ACCOUNT_ID"),
+		"Cloudflare account ID for build deployments.")
+	flag.StringVar(&s3Region, "s3-region", getEnvOrDefault("S3_REGION", "sa-east-1"),
+		"AWS S3 region for build logs and npm cache.")
+	flag.StringVar(&s3AccessKeyID, "s3-access-key-id", os.Getenv("S3_ACCESS_KEY_ID"),
+		"AWS access key ID for S3 presigned URL generation.")
+	flag.StringVar(&s3SecretAccessKey, "s3-secret-access-key", os.Getenv("S3_SECRET_ACCESS_KEY"),
+		"AWS secret access key for S3 presigned URL generation.")
 	opts := zap.Options{
 		Development: false,
 	}
@@ -327,6 +343,20 @@ func main() {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Decofile")
 			os.Exit(1)
 		}
+	}
+	if err := (&controller.BuildReconciler{
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		CfApiToken:  cfApiToken,
+		CfAccountId: cfAccountId,
+		S3Config: build.S3Config{
+			Region:          s3Region,
+			AccessKeyID:     s3AccessKeyID,
+			SecretAccessKey: s3SecretAccessKey,
+		},
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "DecoBuild")
+		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
 
