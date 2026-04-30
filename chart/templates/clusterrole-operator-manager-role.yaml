@@ -56,31 +56,6 @@ rules:
   - deco.sites
   resources:
   - decobuilds
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - deco.sites
-  resources:
-  - decobuilds/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - deco.sites
-  resources:
-  - decobuilds/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - deco.sites
-  resources:
   - decofiles
   verbs:
   - create
@@ -93,12 +68,14 @@ rules:
 - apiGroups:
   - deco.sites
   resources:
+  - decobuilds/finalizers
   - decofiles/finalizers
   verbs:
   - update
 - apiGroups:
   - deco.sites
   resources:
+  - decobuilds/status
   - decofiles/status
   verbs:
   - get

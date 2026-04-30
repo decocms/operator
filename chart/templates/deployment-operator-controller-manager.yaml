@@ -31,7 +31,7 @@ spec:
         command:
         - /manager
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) (and .Values.valkey (get .Values.valkey "sentinelUrls")) }}
+        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret }}
         env:
         {{- if and .Values.github .Values.github.existingSecret }}
         - name: GITHUB_TOKEN
@@ -61,7 +61,6 @@ spec:
         {{- end }}
         {{- end }}
         {{- end }}
-        {{- end }}
         {{- with .Values.cfworkers }}
         {{- if .existingSecret }}
         - name: CLOUDFLARE_API_WORKERS_TOKEN
@@ -87,6 +86,7 @@ spec:
         {{- end }}
         - name: S3_REGION
           value: {{ .s3Region | default "sa-east-1" | quote }}
+        {{- end }}
         {{- end }}
         livenessProbe:
           httpGet:

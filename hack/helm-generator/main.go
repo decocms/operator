@@ -188,7 +188,7 @@ func addEnvVarsToDeployment(templatesDir string) error {
 	contentStr := string(content)
 
 	// Find the image line and add env vars after it
-	envBlock := `        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) (and .Values.valkey (get .Values.valkey "sentinelUrls")) }}
+	envBlock := `        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret }}
         env:
         {{- if and .Values.github .Values.github.existingSecret }}
         - name: GITHUB_TOKEN
@@ -217,6 +217,32 @@ func addEnvVarsToDeployment(templatesDir string) error {
           value: {{ .adminPassword | quote }}
         {{- end }}
         {{- end }}
+        {{- end }}
+        {{- with .Values.cfworkers }}
+        {{- if .existingSecret }}
+        - name: CLOUDFLARE_API_WORKERS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .existingSecret | quote }}
+              key: cf-api-token
+        - name: CLOUDFLARE_ACCOUNT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ .existingSecret | quote }}
+              key: cf-account-id
+        - name: S3_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ .existingSecret | quote }}
+              key: s3-access-key-id
+        - name: S3_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ .existingSecret | quote }}
+              key: s3-secret-access-key
+        {{- end }}
+        - name: S3_REGION
+          value: {{ .s3Region | default "sa-east-1" | quote }}
         {{- end }}
         {{- end }}`
 
