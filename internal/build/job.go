@@ -15,11 +15,11 @@ import (
 )
 
 const (
-	BuilderImage           = "ghcr.io/decocms/infra_applications/cfworkers-builder:v1.0.0"
-	DefaultEntryPoint      = "src/worker-entry.ts"
-	DefaultCompatDate      = "2025-04-01"
-	LogsBucket             = "deco-sites-build-logs"
-	CacheBucket            = "deco-cfworkers-deployments"
+	BuilderImage            = "ghcr.io/decocms/infra_applications/cfworkers-builder:v1.0.0"
+	DefaultEntryPoint       = "src/worker-entry.ts"
+	DefaultCompatDate       = "2025-04-01"
+	LogsBucket              = "deco-sites-build-logs"
+	CacheBucket             = "deco-cfworkers-deployments"
 	ttlSecondsAfterFinished = int32(24 * 60 * 60) // 24h
 )
 
