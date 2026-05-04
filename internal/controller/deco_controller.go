@@ -18,17 +18,14 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
+	"github.com/deco-sites/decofile-operator/internal/build"
 )
-
-// JobFactory builds a *batchv1.Job for a given Deco and build source.
-// The controller sets the owner reference and creates the job in Kubernetes.
-type JobFactory func(ctx context.Context, deco *decositesv1alpha1.Deco, jobName string, source decositesv1alpha1.DecoSpecBuildSource) (*batchv1.Job, error)
 
 // DecoReconciler reconciles Deco objects.
 type DecoReconciler struct {
 	client.Client
-	Scheme    *runtime.Scheme
-	Factories map[string]JobFactory // keyed by spec.serving.type
+	Scheme   *runtime.Scheme
+	Registry *build.Registry
 }
 
 // +kubebuilder:rbac:groups=deco.sites,resources=decos,verbs=get;list;watch;create;update;patch;delete
@@ -232,13 +229,7 @@ func (r *DecoReconciler) reconcilePreviewBuilds(ctx context.Context, log logr.Lo
 
 // createJob creates a K8s Job for either a production or preview build.
 func (r *DecoReconciler) createJob(ctx context.Context, deco *decositesv1alpha1.Deco, jobName string, source decositesv1alpha1.DecoSpecBuildSource) error {
-	servingType := deco.Spec.Serving.Type
-	factory, ok := r.Factories[servingType]
-	if !ok {
-		return fmt.Errorf("no job factory registered for serving type %q", servingType)
-	}
-
-	job, err := factory(ctx, deco, jobName, source)
+	job, err := r.Registry.NewJob(ctx, deco, jobName, source)
 	if err != nil {
 		return fmt.Errorf("building job spec: %w", err)
 	}

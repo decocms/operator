@@ -353,7 +353,7 @@ func main() {
 		LogsBucket:      "deco-sites-build-logs",
 		CacheBucket:     "deco-cfworkers-deployments",
 	}
-	cfWorkersFactory := controller.JobFactory(func(ctx context.Context, deco *decositesv1alpha1.Deco, jobName string, source decositesv1alpha1.DecoSpecBuildSource) (*batchv1.Job, error) {
+	cfWorkersFactory := build.Factory(func(ctx context.Context, deco *decositesv1alpha1.Deco, jobName string, source decositesv1alpha1.DecoSpecBuildSource) (*batchv1.Job, error) {
 		presignedURLs, err := build.GeneratePresignedURLs(ctx, s3Cfg, deco.Spec.Site, jobName)
 		if err != nil {
 			return nil, fmt.Errorf("generating presigned URLs: %w", err)
@@ -370,12 +370,13 @@ func main() {
 			TTLSeconds:     24 * 60 * 60,
 		}), nil
 	})
+	registry := build.NewRegistry()
+	registry.Register("cloudflare-worker", cfWorkersFactory)
+
 	if err := (&controller.DecoReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-		Factories: map[string]controller.JobFactory{
-			"cloudflare-worker": cfWorkersFactory,
-		},
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Registry: registry,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Deco")
 		os.Exit(1)
