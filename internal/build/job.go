@@ -13,13 +13,6 @@ import (
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
 )
 
-const (
-	BuilderImage            = "ghcr.io/decocms/infra_applications/cfworkers-builder:latest"
-	LogsBucket              = "deco-sites-build-logs"
-	CacheBucket             = "deco-cfworkers-deployments"
-	ttlSecondsAfterFinished = int32(24 * 60 * 60) // 24h
-)
-
 // JobName returns a deterministic job name: sha256("build-{commitSha}-{site}"), first 4 bytes as hex.
 func JobName(commitSha, site string) string {
 	h := sha256.Sum256([]byte("build-" + commitSha + "-" + site))
@@ -43,6 +36,10 @@ type JobOpts struct {
 	PresignedURLs PresignedURLs
 	// SourceOverride replaces spec.build.source when set (used for preview builds).
 	SourceOverride *decositesv1alpha1.DecoSpecBuildSource
+	// BuilderImage is the platform default. spec.build.builder in the CR takes precedence when set.
+	BuilderImage string
+	// TTLSeconds controls how long the Job is kept after completion.
+	TTLSeconds int32
 }
 
 // NewJob builds the batchv1.Job spec for a cfworkers build.
@@ -63,7 +60,8 @@ func NewJob(opts JobOpts) *batchv1.Job {
 		isProduction = "true"
 	}
 
-	builderImage := BuilderImage
+	// CR takes precedence over the platform default.
+	builderImage := opts.BuilderImage
 	if spec.Build != nil && spec.Build.Builder != "" {
 		builderImage = spec.Build.Builder
 	}
@@ -88,7 +86,7 @@ func NewJob(opts JobOpts) *batchv1.Job {
 	}
 
 	backoffLimit := int32(0)
-	ttl := ttlSecondsAfterFinished
+	ttl := opts.TTLSeconds
 
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{

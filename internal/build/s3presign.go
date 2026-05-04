@@ -13,11 +13,13 @@ import (
 
 const presignExpiry = time.Hour
 
-// S3Config holds the AWS credentials used to generate presigned URLs.
+// S3Config holds the AWS credentials and bucket names used to generate presigned URLs.
 type S3Config struct {
 	Region          string
 	AccessKeyID     string
 	SecretAccessKey string
+	LogsBucket      string // bucket for build logs
+	CacheBucket     string // bucket for npm cache
 }
 
 // GeneratePresignedURLs generates all presigned URLs the build job needs.
@@ -36,7 +38,7 @@ func GeneratePresignedURLs(ctx context.Context, cfg S3Config, site, jobName stri
 	presigner := s3.NewPresignClient(s3.NewFromConfig(awsCfg))
 
 	logsUpload, err := presigner.PresignPutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(LogsBucket),
+		Bucket: aws.String(cfg.LogsBucket),
 		Key:    aws.String(fmt.Sprintf("%s/%s.log", site, jobName)),
 	}, s3.WithPresignExpires(presignExpiry))
 	if err != nil {
@@ -46,7 +48,7 @@ func GeneratePresignedURLs(ctx context.Context, cfg S3Config, site, jobName stri
 	cacheKey := fmt.Sprintf("%s/npm-cache.tar.zst", site)
 
 	cacheDownload, err := presigner.PresignGetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(CacheBucket),
+		Bucket: aws.String(cfg.CacheBucket),
 		Key:    aws.String(cacheKey),
 	}, s3.WithPresignExpires(presignExpiry))
 	if err != nil {
@@ -54,7 +56,7 @@ func GeneratePresignedURLs(ctx context.Context, cfg S3Config, site, jobName stri
 	}
 
 	cacheUpload, err := presigner.PresignPutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(CacheBucket),
+		Bucket: aws.String(cfg.CacheBucket),
 		Key:    aws.String(cacheKey),
 	}, s3.WithPresignExpires(presignExpiry))
 	if err != nil {

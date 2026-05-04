@@ -350,6 +350,8 @@ func main() {
 		Region:          s3Region,
 		AccessKeyID:     s3AccessKeyID,
 		SecretAccessKey: s3SecretAccessKey,
+		LogsBucket:      "deco-sites-build-logs",
+		CacheBucket:     "deco-cfworkers-deployments",
 	}
 	cfWorkersFactory := controller.JobFactory(func(ctx context.Context, deco *decositesv1alpha1.Deco, jobName string, source decositesv1alpha1.DecoSpecBuildSource) (*batchv1.Job, error) {
 		presignedURLs, err := build.GeneratePresignedURLs(ctx, s3Cfg, deco.Spec.Site, jobName)
@@ -364,6 +366,8 @@ func main() {
 			CfAccountId:    cfAccountId,
 			PresignedURLs:  presignedURLs,
 			SourceOverride: &source,
+			BuilderImage:   "ghcr.io/decocms/infra_applications/cfworkers-builder:latest",
+			TTLSeconds:     24 * 60 * 60,
 		}), nil
 	})
 	if err := (&controller.DecoReconciler{
