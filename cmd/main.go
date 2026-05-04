@@ -353,7 +353,12 @@ func main() {
 		LogsBucket:      "deco-sites-build-logs",
 		CacheBucket:     "deco-cfworkers-deployments",
 	}
-	cfWorkersFactory := build.Factory(func(ctx context.Context, deco *decositesv1alpha1.Deco, jobName string, source decositesv1alpha1.DecoSpecBuildSource) (*batchv1.Job, error) {
+	cfWorkersFactory := build.Factory(func(
+		ctx context.Context,
+		deco *decositesv1alpha1.Deco,
+		jobName string,
+		source decositesv1alpha1.DecoSpecBuildSource,
+	) (*batchv1.Job, error) {
 		presignedURLs, err := build.GeneratePresignedURLs(ctx, s3Cfg, deco.Spec.Site, jobName)
 		if err != nil {
 			return nil, fmt.Errorf("generating presigned URLs: %w", err)

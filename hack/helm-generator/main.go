@@ -240,9 +240,12 @@ func addEnvVarsToDeployment(templatesDir string) error {
             secretKeyRef:
               name: {{ .existingSecret | quote }}
               key: s3-secret-access-key
-        {{- end }}
         - name: S3_REGION
-          value: {{ .s3Region | default "sa-east-1" | quote }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ .existingSecret | quote }}
+              key: s3-region
+        {{- end }}
         {{- end }}
         {{- end }}`
 

@@ -21,6 +21,11 @@ import (
 	"github.com/deco-sites/decofile-operator/internal/build"
 )
 
+const (
+	phaseSucceeded = "Succeeded"
+	phaseFailed    = "Failed"
+)
+
 // DecoReconciler reconciles Deco objects.
 type DecoReconciler struct {
 	client.Client
@@ -118,7 +123,7 @@ func (r *DecoReconciler) reconcileProductionBuild(ctx context.Context, log logr.
 		patch.Status.Build = &decositesv1alpha1.DecoStatusBuild{}
 	}
 	patch.Status.Build.Phase = phase
-	if phase == "Succeeded" || phase == "Failed" {
+	if phase == phaseSucceeded || phase == phaseFailed {
 		now := metav1.Now()
 		patch.Status.Build.CompletionTime = &now
 		if deco.Status.Build != nil && deco.Status.Build.StartTime != nil {
@@ -126,7 +131,7 @@ func (r *DecoReconciler) reconcileProductionBuild(ctx context.Context, log logr.
 			RecordBuild(deco.Spec.Site, phase, "production", duration)
 		}
 	}
-	if phase == "Succeeded" {
+	if phase == phaseSucceeded {
 		patch.Status.Build.LastBuiltCommit = commitSha
 	}
 	return true, nil
@@ -150,13 +155,13 @@ func (r *DecoReconciler) reconcilePreviewBuilds(ctx context.Context, log logr.Lo
 		activeCommits[p.CommitSha] = true
 	}
 
-	var newStatuses []decositesv1alpha1.DecoPreviewStatus
+	newStatuses := make([]decositesv1alpha1.DecoPreviewStatus, 0, len(active))
 	changed := false
 
 	for _, preview := range active {
 		jobName := build.JobName(preview.CommitSha, deco.Spec.Site)
 
-		if s, ok := existingByCommit[preview.CommitSha]; ok && s.Phase == "Succeeded" {
+		if s, ok := existingByCommit[preview.CommitSha]; ok && s.Phase == phaseSucceeded {
 			newStatuses = append(newStatuses, s)
 			continue
 		}
@@ -202,7 +207,7 @@ func (r *DecoReconciler) reconcilePreviewBuilds(ctx context.Context, log logr.Lo
 		}
 		if existing, ok := existingByCommit[preview.CommitSha]; ok {
 			s.StartTime = existing.StartTime
-			if (phase == "Succeeded" || phase == "Failed") && existing.CompletionTime == nil {
+			if (phase == phaseSucceeded || phase == phaseFailed) && existing.CompletionTime == nil {
 				now := metav1.Now()
 				s.CompletionTime = &now
 				if existing.StartTime != nil {
@@ -259,9 +264,9 @@ func buildPhaseFromJob(job *batchv1.Job) string {
 		}
 		switch c.Type {
 		case batchv1.JobComplete, "SuccessCriteriaMet":
-			return "Succeeded"
+			return phaseSucceeded
 		case batchv1.JobFailed:
-			return "Failed"
+			return phaseFailed
 		}
 	}
 	return "Running"
