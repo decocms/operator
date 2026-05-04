@@ -121,6 +121,10 @@ func (r *DecoReconciler) reconcileProductionBuild(ctx context.Context, log logr.
 	if phase == "Succeeded" || phase == "Failed" {
 		now := metav1.Now()
 		patch.Status.Build.CompletionTime = &now
+		if deco.Status.Build != nil && deco.Status.Build.StartTime != nil {
+			duration := now.Sub(deco.Status.Build.StartTime.Time).Seconds()
+			RecordBuild(deco.Spec.Site, phase, "production", duration)
+		}
 	}
 	if phase == "Succeeded" {
 		patch.Status.Build.LastBuiltCommit = commitSha
@@ -201,6 +205,10 @@ func (r *DecoReconciler) reconcilePreviewBuilds(ctx context.Context, log logr.Lo
 			if (phase == "Succeeded" || phase == "Failed") && existing.CompletionTime == nil {
 				now := metav1.Now()
 				s.CompletionTime = &now
+				if existing.StartTime != nil {
+					duration := now.Sub(existing.StartTime.Time).Seconds()
+					RecordBuild(deco.Spec.Site, phase, "preview", duration)
+				}
 			} else {
 				s.CompletionTime = existing.CompletionTime
 			}

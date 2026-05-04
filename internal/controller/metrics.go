@@ -22,6 +22,23 @@ import (
 )
 
 var (
+	// cfworkersBuildDuration tracks how long each build took (seconds), labelled by site, status, and build type.
+	cfworkersBuildDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "deco_operator",
+		Subsystem: "cfworkers",
+		Name:      "build_duration_seconds",
+		Help:      "Duration of cfworkers build jobs in seconds.",
+		Buckets:   []float64{30, 60, 120, 180, 300, 600, 900},
+	}, []string{"site", "status", "type"}) // type: production | preview
+
+	// cfworkersBuildTotal counts completed builds by site, status, and type.
+	cfworkersBuildTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "deco_operator",
+		Subsystem: "cfworkers",
+		Name:      "builds_total",
+		Help:      "Total number of cfworkers builds completed.",
+	}, []string{"site", "status", "type"}) // type: production | preview
+
 	// valkeyACLProvisioned counts successful ACL user + Secret provisioning operations.
 	valkeyACLProvisioned = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: "deco_operator",
@@ -78,8 +95,16 @@ func RecordSentinelFailover() {
 	valkeySentinelFailovers.Inc()
 }
 
+// RecordBuild emits duration and count metrics when a build job completes.
+func RecordBuild(site, status, buildType string, durationSeconds float64) {
+	cfworkersBuildDuration.WithLabelValues(site, status, buildType).Observe(durationSeconds)
+	cfworkersBuildTotal.WithLabelValues(site, status, buildType).Inc()
+}
+
 func init() {
 	metrics.Registry.MustRegister(
+		cfworkersBuildDuration,
+		cfworkersBuildTotal,
 		valkeyACLProvisioned,
 		valkeyACLDeleted,
 		valkeyACLErrors,
