@@ -72,6 +72,7 @@ func NewJob(opts JobOpts) *batchv1.Job {
 		{Name: "GIT_REPO", Value: fmt.Sprintf("https://github.com/%s/%s", owner, repo)},
 		{Name: "COMMIT_SHA", Value: src.CommitSha},
 		{Name: "DECO_SITE_NAME", Value: repo},
+		{Name: "WORKER_NAME", Value: repo},
 		{Name: "BUILD_NAME", Value: opts.JobName},
 		{Name: "IS_PRODUCTION", Value: isProduction},
 		{Name: "CF_ACCOUNT_ID", Value: opts.CfAccountId},
