@@ -27,8 +27,8 @@ type JobFactory func(ctx context.Context, deco *decositesv1alpha1.Deco, jobName 
 // DecoReconciler reconciles Deco objects.
 type DecoReconciler struct {
 	client.Client
-	Scheme     *runtime.Scheme
-	JobFactory JobFactory
+	Scheme    *runtime.Scheme
+	Factories map[string]JobFactory // keyed by spec.serving.type
 }
 
 // +kubebuilder:rbac:groups=deco.sites,resources=decos,verbs=get;list;watch;create;update;patch;delete
@@ -232,7 +232,13 @@ func (r *DecoReconciler) reconcilePreviewBuilds(ctx context.Context, log logr.Lo
 
 // createJob creates a K8s Job for either a production or preview build.
 func (r *DecoReconciler) createJob(ctx context.Context, deco *decositesv1alpha1.Deco, jobName string, source decositesv1alpha1.DecoSpecBuildSource) error {
-	job, err := r.JobFactory(ctx, deco, jobName, source)
+	servingType := deco.Spec.Serving.Type
+	factory, ok := r.Factories[servingType]
+	if !ok {
+		return fmt.Errorf("no job factory registered for serving type %q", servingType)
+	}
+
+	job, err := factory(ctx, deco, jobName, source)
 	if err != nil {
 		return fmt.Errorf("building job spec: %w", err)
 	}

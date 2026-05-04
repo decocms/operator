@@ -371,9 +371,11 @@ func main() {
 		}), nil
 	})
 	if err := (&controller.DecoReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		JobFactory: cfWorkersFactory,
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		Factories: map[string]controller.JobFactory{
+			"cloudflare-worker": cfWorkersFactory,
+		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Deco")
 		os.Exit(1)
