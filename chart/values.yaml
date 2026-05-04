@@ -96,7 +96,6 @@ podAnnotations: {}
 podLabels: {}
 
 # Cloudflare Workers build support
-# When existingSecret is set, the operator can create DecoBuild jobs for cfworkers sites.
 cfworkers:
   existingSecret: ""          # Secret with cf-api-token, cf-account-id, s3-access-key-id, s3-secret-access-key
   s3Region: "sa-east-1"
