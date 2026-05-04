@@ -20,7 +20,7 @@ type S3Config struct {
 	SecretAccessKey string
 }
 
-// GeneratePresignedURLs generates the three presigned URLs the build job needs.
+// GeneratePresignedURLs generates all presigned URLs the build job needs.
 // Mirrors generatePresignedUrls() in the admin's build.ts.
 func GeneratePresignedURLs(ctx context.Context, cfg S3Config, site, jobName string) (PresignedURLs, error) {
 	awsCfg, err := config.LoadDefaultConfig(ctx,

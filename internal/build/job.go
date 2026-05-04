@@ -1,5 +1,4 @@
 // Package build contains helpers for creating Cloudflare Workers build Jobs.
-// It is the Go equivalent of hosting/cfworkers/build.ts in the admin.
 package build
 
 import (
@@ -15,22 +14,19 @@ import (
 )
 
 const (
-	BuilderImage            = "ghcr.io/decocms/infra_applications/cfworkers-builder:v1.0.0"
-	DefaultEntryPoint       = "src/worker-entry.ts"
-	DefaultCompatDate       = "2025-04-01"
+	BuilderImage            = "ghcr.io/decocms/infra_applications/cfworkers-builder:latest"
 	LogsBucket              = "deco-sites-build-logs"
 	CacheBucket             = "deco-cfworkers-deployments"
 	ttlSecondsAfterFinished = int32(24 * 60 * 60) // 24h
 )
 
-// JobName returns a deterministic job name from a commit SHA.
-// Mirrors generateJobName() in the admin's build.ts.
-func JobName(commitSha string) string {
-	h := sha256.Sum256([]byte("build-" + commitSha))
-	return fmt.Sprintf("build-%x", h[:6])
+// JobName returns a deterministic job name: sha256("build-{commitSha}-{site}"), first 4 bytes as hex.
+func JobName(commitSha, site string) string {
+	h := sha256.Sum256([]byte("build-" + commitSha + "-" + site))
+	return fmt.Sprintf("build-%x", h[:4])
 }
 
-// PresignedURLs are the three S3 presigned URLs the build job needs.
+// PresignedURLs are the S3 presigned URLs the build job needs.
 type PresignedURLs struct {
 	LogsUpload    string
 	CacheDownload string
@@ -39,53 +35,53 @@ type PresignedURLs struct {
 
 // JobOpts are the inputs for NewJob.
 type JobOpts struct {
-	Build         *decositesv1alpha1.DecoBuild
+	Deco          *decositesv1alpha1.Deco
 	JobName       string
 	GithubToken   string
 	CfApiToken    string
 	CfAccountId   string
 	PresignedURLs PresignedURLs
+	// SourceOverride replaces spec.build.source when set (used for preview builds).
+	SourceOverride *decositesv1alpha1.DecoSpecBuildSource
 }
 
 // NewJob builds the batchv1.Job spec for a cfworkers build.
-// This is the Go equivalent of buildJobOf() in the admin's build.ts.
 func NewJob(opts JobOpts) *batchv1.Job {
-	spec := opts.Build.Spec
+	spec := opts.Deco.Spec
+	var src decositesv1alpha1.DecoSpecBuildSource
+	if opts.SourceOverride != nil {
+		src = *opts.SourceOverride
+	} else if spec.Build != nil {
+		src = spec.Build.Source
+	}
 
-	workerName := spec.WorkerName
-	if workerName == "" {
-		workerName = spec.Site
-	}
-	entryPoint := spec.EntryPoint
-	if entryPoint == "" {
-		entryPoint = DefaultEntryPoint
-	}
-	compatDate := spec.CompatDate
-	if compatDate == "" {
-		compatDate = DefaultCompatDate
-	}
+	owner := spec.Org
+	repo := spec.Site
+
 	isProduction := "false"
-	if spec.Production {
+	if src.Production {
 		isProduction = "true"
 	}
 
+	builderImage := BuilderImage
+	if spec.Build != nil && spec.Build.Builder != "" {
+		builderImage = spec.Build.Builder
+	}
+
 	env := []corev1.EnvVar{
-		{Name: "GIT_REPO", Value: fmt.Sprintf("https://github.com/%s/%s", spec.Owner, spec.Repo)},
-		{Name: "COMMIT_SHA", Value: spec.CommitSha},
-		{Name: "DECO_SITE_NAME", Value: spec.Site},
+		{Name: "GIT_REPO", Value: fmt.Sprintf("https://github.com/%s/%s", owner, repo)},
+		{Name: "COMMIT_SHA", Value: src.CommitSha},
+		{Name: "DECO_SITE_NAME", Value: repo},
 		{Name: "BUILD_NAME", Value: opts.JobName},
 		{Name: "IS_PRODUCTION", Value: isProduction},
-		{Name: "WORKER_NAME", Value: workerName},
 		{Name: "CF_ACCOUNT_ID", Value: opts.CfAccountId},
 		{Name: "CLOUDFLARE_API_TOKEN", Value: opts.CfApiToken},
-		{Name: "ENTRY_POINT", Value: entryPoint},
-		{Name: "COMPAT_DATE", Value: compatDate},
 		{Name: "LOGS_UPLOAD_URL", Value: opts.PresignedURLs.LogsUpload},
 		{Name: "CACHE_DOWNLOAD_URL", Value: opts.PresignedURLs.CacheDownload},
 		{Name: "CACHE_UPLOAD_URL", Value: opts.PresignedURLs.CacheUpload},
 	}
-	if spec.BranchRef != "" {
-		env = append(env, corev1.EnvVar{Name: "BRANCH_REF", Value: spec.BranchRef})
+	if src.BranchRef != "" {
+		env = append(env, corev1.EnvVar{Name: "BRANCH_REF", Value: src.BranchRef})
 	}
 	if opts.GithubToken != "" {
 		env = append(env, corev1.EnvVar{Name: "GITHUB_TOKEN", Value: opts.GithubToken})
@@ -97,12 +93,11 @@ func NewJob(opts JobOpts) *batchv1.Job {
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      opts.JobName,
-			Namespace: opts.Build.Namespace,
+			Namespace: opts.Deco.Namespace,
 			Labels: map[string]string{
-				"app.deco/site":     spec.Site,
-				"app.deco/owner":    spec.Owner,
-				"app.deco/repo":     spec.Repo,
-				"app.deco/platform": "cfworkers",
+				"app.deco/site":    repo,
+				"app.deco/org":     owner,
+				"app.deco/serving": spec.Serving.Type,
 			},
 		},
 		Spec: batchv1.JobSpec{
@@ -114,11 +109,11 @@ func NewJob(opts JobOpts) *batchv1.Job {
 					Containers: []corev1.Container{
 						{
 							Name:  "builder",
-							Image: BuilderImage,
+							Image: builderImage,
 							Env:   env,
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceMemory:           resource.MustParse("4Gi"),
+									corev1.ResourceMemory:           resource.MustParse("1Gi"),
 									corev1.ResourceCPU:              resource.MustParse("500m"),
 									corev1.ResourceEphemeralStorage: resource.MustParse("2Gi"),
 								},

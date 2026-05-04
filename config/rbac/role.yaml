@@ -56,8 +56,8 @@ rules:
 - apiGroups:
   - deco.sites
   resources:
-  - decobuilds
   - decofiles
+  - decos
   verbs:
   - create
   - delete
@@ -69,15 +69,15 @@ rules:
 - apiGroups:
   - deco.sites
   resources:
-  - decobuilds/finalizers
   - decofiles/finalizers
+  - decos/finalizers
   verbs:
   - update
 - apiGroups:
   - deco.sites
   resources:
-  - decobuilds/status
   - decofiles/status
+  - decos/status
   verbs:
   - get
   - patch

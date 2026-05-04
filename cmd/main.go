@@ -344,9 +344,10 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	if err := (&controller.BuildReconciler{
+	if err := (&controller.DecoReconciler{
 		Client:      mgr.GetClient(),
 		Scheme:      mgr.GetScheme(),
+		GithubToken: os.Getenv("GITHUB_TOKEN"),
 		CfApiToken:  cfApiToken,
 		CfAccountId: cfAccountId,
 		S3Config: build.S3Config{
@@ -355,7 +356,7 @@ func main() {
 			SecretAccessKey: s3SecretAccessKey,
 		},
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "DecoBuild")
+		setupLog.Error(err, "unable to create controller", "controller", "Deco")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
