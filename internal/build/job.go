@@ -1,4 +1,4 @@
-// Package build contains helpers for creating Cloudflare Workers build Jobs.
+// Package build contains helpers for creating cfworkers build Jobs.
 package build
 
 import (

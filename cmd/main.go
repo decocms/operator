@@ -30,6 +30,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -344,17 +345,31 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	githubToken := os.Getenv("GITHUB_TOKEN")
+	s3Cfg := build.S3Config{
+		Region:          s3Region,
+		AccessKeyID:     s3AccessKeyID,
+		SecretAccessKey: s3SecretAccessKey,
+	}
+	cfWorkersFactory := controller.JobFactory(func(ctx context.Context, deco *decositesv1alpha1.Deco, jobName string, source decositesv1alpha1.DecoSpecBuildSource) (*batchv1.Job, error) {
+		presignedURLs, err := build.GeneratePresignedURLs(ctx, s3Cfg, deco.Spec.Site, jobName)
+		if err != nil {
+			return nil, fmt.Errorf("generating presigned URLs: %w", err)
+		}
+		return build.NewJob(build.JobOpts{
+			Deco:           deco,
+			JobName:        jobName,
+			GithubToken:    githubToken,
+			CfApiToken:     cfApiToken,
+			CfAccountId:    cfAccountId,
+			PresignedURLs:  presignedURLs,
+			SourceOverride: &source,
+		}), nil
+	})
 	if err := (&controller.DecoReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		GithubToken: os.Getenv("GITHUB_TOKEN"),
-		CfApiToken:  cfApiToken,
-		CfAccountId: cfAccountId,
-		S3Config: build.S3Config{
-			Region:          s3Region,
-			AccessKeyID:     s3AccessKeyID,
-			SecretAccessKey: s3SecretAccessKey,
-		},
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		JobFactory: cfWorkersFactory,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Deco")
 		os.Exit(1)
