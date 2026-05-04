@@ -97,8 +97,7 @@ podLabels: {}
 
 # Cloudflare Workers build support
 cfworkers:
-  existingSecret: ""          # Secret with cf-api-token, cf-account-id, s3-access-key-id, s3-secret-access-key
-  s3Region: "sa-east-1"
+  existingSecret: ""          # Secret with cf-api-token, cf-account-id, s3-access-key-id, s3-secret-access-key, s3-region
 
 # Name overrides
 nameOverride: ""
