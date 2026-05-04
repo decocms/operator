@@ -160,6 +160,7 @@ type DecoPreviewStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:path=decos
 // +kubebuilder:printcolumn:name="Site",type=string,JSONPath=`.spec.site`
 // +kubebuilder:printcolumn:name="Serving",type=string,JSONPath=`.spec.serving.type`
 // +kubebuilder:printcolumn:name="Commit",type=string,JSONPath=`.spec.build.source.commitSha`

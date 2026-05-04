@@ -36,148 +36,187 @@ spec:
         description: Deco is the Schema for the decos API.
         properties:
           apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
           kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
             type: string
           metadata:
             type: object
           spec:
             description: DecoSpec defines the desired state of a Deco workload.
             properties:
-              type:
-                description: Type is the workload type. site | server | admin | preview
-                type: string
-              site:
-                description: Site is the site/repository name.
-                type: string
-              org:
-                description: Org is the GitHub organization or owner.
-                type: string
-              framework:
-                description: Framework is the site framework. deno | tanstack | next | remix | static
-                type: string
               build:
-                description: Build describes the build pipeline.
+                description: Build describes the production build pipeline.
                 properties:
-                  type:
-                    description: Type is the build mechanism. Currently only k8s-job is supported.
-                    type: string
                   builder:
                     description: Builder overrides the builder image (repository:tag).
                     type: string
                   source:
-                    description: Source identifies the code revision to build.
+                    description: |-
+                      Source identifies the code revision to build.
+                      Repository and owner come from spec.site and spec.org.
                     properties:
+                      branchRef:
+                        description: BranchRef is the branch name for preview aliases
+                          (non-production only).
+                        type: string
                       commitSha:
-                        description: CommitSha is the git commit SHA to build. Updating this field triggers a new build.
+                        description: |-
+                          CommitSha is the git commit SHA to build.
+                          Updating this field triggers a new build.
                         type: string
                       production:
-                        description: Production indicates whether this is a production deploy.
+                        description: Production indicates whether this is a production
+                          deploy.
                         type: boolean
-                      branchRef:
-                        description: BranchRef is the branch name for preview aliases (non-production only).
-                        type: string
                     required:
                     - commitSha
                     type: object
+                  type:
+                    description: Type is the build mechanism. Currently only k8s-job
+                      is supported.
+                    type: string
                 required:
                 - source
                 type: object
-              serving:
-                description: Serving describes the runtime serving configuration. Also drives build job selection.
-                properties:
-                  type:
-                    description: 'Type is the serving runtime. Supported: cloudflare-worker | knative | deployment'
-                    type: string
-                required:
-                - type
-                type: object
+              framework:
+                description: Framework is the site framework. deno | tanstack | next
+                  | remix | static
+                type: string
+              org:
+                description: Org is the GitHub organization or owner.
+                type: string
               previews:
-                description: Previews configures preview builds for this site.
+                description: |-
+                  Previews configures preview builds for this site.
+                  Admin adds entries to Previews.Active on PR open and removes on PR close.
                 properties:
-                  type:
-                    description: Preview runtime. cloudflare-preview | statefulset | sandbox
-                    type: string
+                  active:
+                    description: |-
+                      Active is the list of preview builds currently requested.
+                      Admin adds entries on PR open, removes on PR close.
+                    items:
+                      description: DecoPreviewRequest identifies a single preview
+                        build request.
+                      properties:
+                        branchRef:
+                          description: BranchRef is the branch or PR ref (used as
+                            the wrangler preview alias).
+                          type: string
+                        commitSha:
+                          description: CommitSha is the git commit SHA to build.
+                          type: string
+                        prId:
+                          description: PrId is the pull request ID, for tracking.
+                          type: string
+                      required:
+                      - branchRef
+                      - commitSha
+                      type: object
+                    type: array
                   maxActive:
-                    description: Maximum number of concurrent previews the operator will build.
+                    description: |-
+                      MaxActive is the maximum number of concurrent previews the operator will build.
+                      Operator processes only the most recent MaxActive entries in Active.
                     format: int32
                     type: integer
                   ttl:
-                    description: Duration after which completed previews are eligible for cleanup (e.g. "48h").
+                    description: TTL is the duration after which completed previews
+                      are eligible for cleanup (e.g. "48h").
                     type: string
-                  active:
-                    description: List of preview builds currently requested.
-                    items:
-                      properties:
-                        commitSha:
-                          description: Git commit SHA to build.
-                          type: string
-                        branchRef:
-                          description: Branch or PR ref used as the wrangler preview alias.
-                          type: string
-                        prId:
-                          description: Pull request ID for tracking.
-                          type: string
-                      required:
-                      - commitSha
-                      - branchRef
-                      type: object
-                    type: array
+                  type:
+                    description: Type is the preview runtime. cloudflare-preview |
+                      statefulset | sandbox
+                    type: string
                 required:
                 - type
                 type: object
+              serving:
+                description: Serving describes the runtime serving configuration.
+                properties:
+                  type:
+                    description: |-
+                      Type is the serving runtime. Drives both serving and build job selection.
+                      Supported: cloudflare-worker | knative | deployment
+                    type: string
+                required:
+                - type
+                type: object
+              site:
+                description: Site is the site/repository name.
+                type: string
+              type:
+                description: Type is the workload type. site | server | admin | preview
+                type: string
             required:
-            - site
             - org
+            - site
             type: object
           status:
             description: DecoStatus defines the observed state of a Deco workload.
             properties:
               build:
-                description: Build tracks the current build lifecycle.
+                description: Build tracks the current production build lifecycle.
                 properties:
-                  phase:
-                    description: 'Phase is the current build phase: Running | Succeeded | Failed'
-                    type: string
                   commitSha:
-                    description: CommitSha is the commit currently being built (or last attempted).
+                    description: CommitSha is the commit currently being built (or
+                      last attempted).
                     type: string
-                  lastBuiltCommit:
-                    description: LastBuiltCommit is the commit SHA of the last successful build.
+                  completionTime:
+                    description: CompletionTime is when the current build finished.
+                    format: date-time
                     type: string
                   jobName:
                     description: JobName is the K8s Job name for the current build.
                     type: string
-                  startTime:
-                    format: date-time
+                  lastBuiltCommit:
+                    description: LastBuiltCommit is the commit SHA of the last successful
+                      build.
                     type: string
-                  completionTime:
+                  phase:
+                    description: 'Phase is the current build phase: Running | Succeeded
+                      | Failed'
+                    type: string
+                  startTime:
+                    description: StartTime is when the current build started.
                     format: date-time
                     type: string
                 type: object
               previews:
                 description: Previews tracks the build status of each active preview.
                 items:
+                  description: DecoPreviewStatus tracks the build status of a single
+                    preview.
                   properties:
-                    commitSha:
-                      type: string
                     branchRef:
                       type: string
-                    prId:
+                    commitSha:
+                      type: string
+                    completionTime:
+                      format: date-time
                       type: string
                     jobName:
                       type: string
                     phase:
                       type: string
+                    prId:
+                      type: string
                     startTime:
                       format: date-time
                       type: string
-                    completionTime:
-                      format: date-time
-                      type: string
                   required:
-                  - commitSha
                   - branchRef
+                  - commitSha
                   - phase
                   type: object
                 type: array
