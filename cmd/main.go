@@ -358,7 +358,7 @@ func main() {
 		if err != nil {
 			return nil, fmt.Errorf("generating presigned URLs: %w", err)
 		}
-		return build.NewJob(build.JobOpts{
+		return build.NewCfWorkersJob(build.CfWorkersJobOpts{
 			Deco:           deco,
 			JobName:        jobName,
 			GithubToken:    githubToken,

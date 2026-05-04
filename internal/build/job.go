@@ -26,8 +26,8 @@ type PresignedURLs struct {
 	CacheUpload   string
 }
 
-// JobOpts are the inputs for NewJob.
-type JobOpts struct {
+// CfWorkersJobOpts are the inputs for NewJob.
+type CfWorkersJobOpts struct {
 	Deco          *decositesv1alpha1.Deco
 	JobName       string
 	GithubToken   string
@@ -42,8 +42,8 @@ type JobOpts struct {
 	TTLSeconds int32
 }
 
-// NewJob builds the batchv1.Job spec for a cfworkers build.
-func NewJob(opts JobOpts) *batchv1.Job {
+// NewCfWorkersJob builds the batchv1.Job spec for a cfworkers build.
+func NewCfWorkersJob(opts CfWorkersJobOpts) *batchv1.Job {
 	spec := opts.Deco.Spec
 	var src decositesv1alpha1.DecoSpecBuildSource
 	if opts.SourceOverride != nil {
