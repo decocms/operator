@@ -52,11 +52,11 @@ func TestCfWorkersConfigFromEnv_Defaults(t *testing.T) {
 	if cfg.S3.Region != "sa-east-1" {
 		t.Errorf("default S3.Region: want sa-east-1, got %q", cfg.S3.Region)
 	}
-	if cfg.S3.LogsBucket != "deco-sites-build-logs" {
-		t.Errorf("default S3.LogsBucket: want deco-sites-build-logs, got %q", cfg.S3.LogsBucket)
+	if cfg.S3.LogsBucket != "new-deco-sites-build-logs" {
+		t.Errorf("default S3.LogsBucket: want new-deco-sites-build-logs, got %q", cfg.S3.LogsBucket)
 	}
-	if cfg.S3.CacheBucket != "deco-cfworkers-deployments" {
-		t.Errorf("default S3.CacheBucket: want deco-cfworkers-deployments, got %q", cfg.S3.CacheBucket)
+	if cfg.S3.CacheBucket != "new-deco-cfworkers-deployments" {
+		t.Errorf("default S3.CacheBucket: want new-deco-cfworkers-deployments, got %q", cfg.S3.CacheBucket)
 	}
 	if cfg.TTLSeconds != 24*60*60 {
 		t.Errorf("default TTLSeconds: want 86400, got %d", cfg.TTLSeconds)

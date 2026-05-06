@@ -152,8 +152,8 @@ func CfWorkersConfigFromEnv() CfWorkersConfig {
 			Region:          envOrDefault("S3_REGION", "sa-east-1"),
 			AccessKeyID:     os.Getenv("S3_ACCESS_KEY_ID"),
 			SecretAccessKey: os.Getenv("S3_SECRET_ACCESS_KEY"),
-			LogsBucket:      envOrDefault("S3_LOGS_BUCKET", "deco-sites-build-logs"),
-			CacheBucket:     envOrDefault("S3_CACHE_BUCKET", "deco-cfworkers-deployments"),
+			LogsBucket:      envOrDefault("S3_LOGS_BUCKET", "new-deco-sites-build-logs"),
+			CacheBucket:     envOrDefault("S3_CACHE_BUCKET", "new-deco-cfworkers-deployments"),
 		},
 	}
 }

@@ -29,8 +29,8 @@ const (
 // DecoReconciler reconciles Deco objects.
 type DecoReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	Registry *build.Registry
+	Scheme  *runtime.Scheme
+	Builder build.Builder
 }
 
 // +kubebuilder:rbac:groups=deco.sites,resources=decos,verbs=get;list;watch;create;update;patch;delete
@@ -242,7 +242,7 @@ func (r *DecoReconciler) reconcilePreviewBuilds(ctx context.Context, log logr.Lo
 
 // createJob creates a K8s Job for either a production or preview build.
 func (r *DecoReconciler) createJob(ctx context.Context, deco *decositesv1alpha1.Deco, jobName string, source decositesv1alpha1.DecoSpecBuildSource) error {
-	job, err := r.Registry.NewJob(ctx, deco, jobName, source)
+	job, err := r.Builder.NewJob(ctx, deco, jobName, source)
 	if err != nil {
 		return fmt.Errorf("building job spec: %w", err)
 	}
