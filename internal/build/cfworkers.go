@@ -2,8 +2,10 @@
 package build
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
+	"os"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -126,4 +128,67 @@ func NewCfWorkersJob(opts CfWorkersJobOpts) *batchv1.Job {
 			},
 		},
 	}
+}
+
+// CfWorkersConfig holds all configuration the Cloudflare Workers builder needs.
+type CfWorkersConfig struct {
+	CfApiToken   string
+	CfAccountId  string
+	GithubToken  string
+	BuilderImage string
+	TTLSeconds   int32
+	S3           S3Config
+}
+
+// CfWorkersConfigFromEnv reads CfWorkersConfig from standard environment variables.
+func CfWorkersConfigFromEnv() CfWorkersConfig {
+	return CfWorkersConfig{
+		CfApiToken:   os.Getenv("CLOUDFLARE_API_WORKERS_TOKEN"),
+		CfAccountId:  os.Getenv("CLOUDFLARE_ACCOUNT_ID"),
+		GithubToken:  os.Getenv("GITHUB_TOKEN"),
+		BuilderImage: envOrDefault("CFWORKERS_BUILDER_IMAGE", "ghcr.io/decocms/infra_applications/cfworkers-builder:latest"),
+		TTLSeconds:   24 * 60 * 60,
+		S3: S3Config{
+			Region:          envOrDefault("S3_REGION", "sa-east-1"),
+			AccessKeyID:     os.Getenv("S3_ACCESS_KEY_ID"),
+			SecretAccessKey: os.Getenv("S3_SECRET_ACCESS_KEY"),
+			LogsBucket:      envOrDefault("S3_LOGS_BUCKET", "deco-sites-build-logs"),
+			CacheBucket:     envOrDefault("S3_CACHE_BUCKET", "deco-cfworkers-deployments"),
+		},
+	}
+}
+
+type cfWorkersBuilder struct {
+	cfg       CfWorkersConfig
+	presignFn func(ctx context.Context, cfg S3Config, site, jobName string) (PresignedURLs, error)
+}
+
+// NewCloudflareFactory returns a Builder for spec.serving.type = "cloudflare-worker".
+func NewCloudflareFactory(cfg CfWorkersConfig) Builder {
+	return &cfWorkersBuilder{cfg: cfg, presignFn: GeneratePresignedURLs}
+}
+
+func (b *cfWorkersBuilder) NewJob(ctx context.Context, deco *decositesv1alpha1.Deco, jobName string, source decositesv1alpha1.DecoSpecBuildSource) (*batchv1.Job, error) {
+	urls, err := b.presignFn(ctx, b.cfg.S3, deco.Spec.Site, jobName)
+	if err != nil {
+		return nil, fmt.Errorf("generating presigned URLs: %w", err)
+	}
+	return NewCfWorkersJob(CfWorkersJobOpts{
+		Deco:           deco,
+		JobName:        jobName,
+		GithubToken:    b.cfg.GithubToken,
+		CfApiToken:     b.cfg.CfApiToken,
+		CfAccountId:    b.cfg.CfAccountId,
+		PresignedURLs:  urls,
+		SourceOverride: &source,
+		BuilderImage:   b.cfg.BuilderImage,
+		TTLSeconds:     b.cfg.TTLSeconds,
+	}), nil
+}
+
+func envOrDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }
