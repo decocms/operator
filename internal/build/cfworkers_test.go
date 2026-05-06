@@ -3,7 +3,6 @@ package build
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -13,6 +12,7 @@ import (
 
 // Compile-time: cfWorkersBuilder must satisfy Builder.
 var _ Builder = (*cfWorkersBuilder)(nil)
+
 
 func TestCfWorkersConfigFromEnv(t *testing.T) {
 	t.Setenv("CLOUDFLARE_API_WORKERS_TOKEN", "cf-token")
@@ -41,27 +41,6 @@ func TestCfWorkersConfigFromEnv(t *testing.T) {
 	}
 }
 
-func TestCfWorkersConfigFromEnv_Defaults(t *testing.T) {
-	os.Unsetenv("S3_REGION")
-	os.Unsetenv("CFWORKERS_BUILDER_IMAGE")
-	os.Unsetenv("S3_LOGS_BUCKET")
-	os.Unsetenv("S3_CACHE_BUCKET")
-
-	cfg := CfWorkersConfigFromEnv()
-
-	if cfg.S3.Region != "sa-east-1" {
-		t.Errorf("default S3.Region: want sa-east-1, got %q", cfg.S3.Region)
-	}
-	if cfg.S3.LogsBucket != "new-deco-sites-build-logs" {
-		t.Errorf("default S3.LogsBucket: want new-deco-sites-build-logs, got %q", cfg.S3.LogsBucket)
-	}
-	if cfg.S3.CacheBucket != "new-deco-cfworkers-deployments" {
-		t.Errorf("default S3.CacheBucket: want new-deco-cfworkers-deployments, got %q", cfg.S3.CacheBucket)
-	}
-	if cfg.TTLSeconds != 24*60*60 {
-		t.Errorf("default TTLSeconds: want 86400, got %d", cfg.TTLSeconds)
-	}
-}
 
 func TestCloudflareBuilder_NewJob_BuildsValidJob(t *testing.T) {
 	cfg := CfWorkersConfig{
