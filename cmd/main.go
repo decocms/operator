@@ -30,7 +30,6 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
-	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -115,21 +114,6 @@ func main() {
 		os.Getenv("VALKEY_WATCH_FAILOVER") != "false",
 		"Subscribe to Sentinel +switch-master events and trigger immediate ACL resync on failover. "+
 			"Enabled by default when VALKEY_SENTINEL_URLS is set. Set VALKEY_WATCH_FAILOVER=false to disable.")
-	var cfApiToken string
-	var cfAccountId string
-	var s3Region string
-	var s3AccessKeyID string
-	var s3SecretAccessKey string
-	flag.StringVar(&cfApiToken, "cf-api-token", os.Getenv("CLOUDFLARE_API_WORKERS_TOKEN"),
-		"Cloudflare Workers API token for build deployments.")
-	flag.StringVar(&cfAccountId, "cf-account-id", os.Getenv("CLOUDFLARE_ACCOUNT_ID"),
-		"Cloudflare account ID for build deployments.")
-	flag.StringVar(&s3Region, "s3-region", getEnvOrDefault("S3_REGION", "sa-east-1"),
-		"AWS S3 region for build logs and npm cache.")
-	flag.StringVar(&s3AccessKeyID, "s3-access-key-id", os.Getenv("S3_ACCESS_KEY_ID"),
-		"AWS access key ID for S3 presigned URL generation.")
-	flag.StringVar(&s3SecretAccessKey, "s3-secret-access-key", os.Getenv("S3_SECRET_ACCESS_KEY"),
-		"AWS secret access key for S3 presigned URL generation.")
 	opts := zap.Options{
 		Development: false,
 	}
@@ -345,43 +329,13 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	githubToken := os.Getenv("GITHUB_TOKEN")
-	s3Cfg := build.S3Config{
-		Region:          s3Region,
-		AccessKeyID:     s3AccessKeyID,
-		SecretAccessKey: s3SecretAccessKey,
-		LogsBucket:      "deco-sites-build-logs",
-		CacheBucket:     "deco-cfworkers-deployments",
-	}
-	cfWorkersFactory := build.Factory(func(
-		ctx context.Context,
-		deco *decositesv1alpha1.Deco,
-		jobName string,
-		source decositesv1alpha1.DecoSpecBuildSource,
-	) (*batchv1.Job, error) {
-		presignedURLs, err := build.GeneratePresignedURLs(ctx, s3Cfg, deco.Spec.Site, jobName)
-		if err != nil {
-			return nil, fmt.Errorf("generating presigned URLs: %w", err)
-		}
-		return build.NewCfWorkersJob(build.CfWorkersJobOpts{
-			Deco:           deco,
-			JobName:        jobName,
-			GithubToken:    githubToken,
-			CfApiToken:     cfApiToken,
-			CfAccountId:    cfAccountId,
-			PresignedURLs:  presignedURLs,
-			SourceOverride: &source,
-			BuilderImage:   "ghcr.io/decocms/infra_applications/cfworkers-builder:latest",
-			TTLSeconds:     24 * 60 * 60,
-		}), nil
-	})
 	registry := build.NewRegistry()
-	registry.Register("cloudflare-worker", cfWorkersFactory)
+	registry.Register("cloudflare-worker", build.NewCloudflareFactory(build.CfWorkersConfigFromEnv()))
 
 	if err := (&controller.DecoReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Registry: registry,
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Builder: registry,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Deco")
 		os.Exit(1)
