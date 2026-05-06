@@ -73,8 +73,8 @@ func TestCloudflareBuilder_NewJob_BuildsValidJob(t *testing.T) {
 		S3:           S3Config{Region: "sa-east-1", LogsBucket: "logs", CacheBucket: "cache"},
 	}
 
-	stubPresign := func(_ context.Context, _ S3Config, _, _ string) (PresignedURLs, error) {
-		return PresignedURLs{LogsUpload: "s3://logs/job.log", CacheDownload: "s3://cache/dl", CacheUpload: "s3://cache/ul"}, nil
+	stubPresign := func(_ context.Context, _ S3Config, _, _ string) (presignedURLs, error) {
+		return presignedURLs{LogsUpload: "s3://logs/job.log", CacheDownload: "s3://cache/dl", CacheUpload: "s3://cache/ul"}, nil
 	}
 
 	b := &cfWorkersBuilder{cfg: cfg, presignFn: stubPresign}
@@ -129,8 +129,8 @@ func TestCloudflareBuilder_NewJob_PropagatesPresignError(t *testing.T) {
 	cfg := CfWorkersConfig{BuilderImage: "img:v1", TTLSeconds: 60}
 	b := &cfWorkersBuilder{
 		cfg: cfg,
-		presignFn: func(_ context.Context, _ S3Config, _, _ string) (PresignedURLs, error) {
-			return PresignedURLs{}, fmt.Errorf("s3 unavailable")
+		presignFn: func(_ context.Context, _ S3Config, _, _ string) (presignedURLs, error) {
+			return presignedURLs{}, fmt.Errorf("s3 unavailable")
 		},
 	}
 	d := &decositesv1alpha1.Deco{

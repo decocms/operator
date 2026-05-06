@@ -22,9 +22,9 @@ type S3Config struct {
 	CacheBucket     string // bucket for npm cache
 }
 
-// GeneratePresignedURLs generates all presigned URLs the build job needs.
+// GeneratepresignedURLs generates all presigned URLs the build job needs.
 // Mirrors generatePresignedUrls() in the admin's build.ts.
-func GeneratePresignedURLs(ctx context.Context, cfg S3Config, site, jobName string) (PresignedURLs, error) {
+func generatePresignedURLs(ctx context.Context, cfg S3Config, site, jobName string) (presignedURLs, error) {
 	awsCfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(cfg.Region),
 		config.WithCredentialsProvider(
@@ -32,7 +32,7 @@ func GeneratePresignedURLs(ctx context.Context, cfg S3Config, site, jobName stri
 		),
 	)
 	if err != nil {
-		return PresignedURLs{}, fmt.Errorf("loading aws config: %w", err)
+		return presignedURLs{}, fmt.Errorf("loading aws config: %w", err)
 	}
 
 	presigner := s3.NewPresignClient(s3.NewFromConfig(awsCfg))
@@ -42,7 +42,7 @@ func GeneratePresignedURLs(ctx context.Context, cfg S3Config, site, jobName stri
 		Key:    aws.String(fmt.Sprintf("%s/%s.log", site, jobName)),
 	}, s3.WithPresignExpires(presignExpiry))
 	if err != nil {
-		return PresignedURLs{}, fmt.Errorf("presigning logs upload: %w", err)
+		return presignedURLs{}, fmt.Errorf("presigning logs upload: %w", err)
 	}
 
 	cacheKey := fmt.Sprintf("%s/npm-cache.tar.zst", site)
@@ -52,7 +52,7 @@ func GeneratePresignedURLs(ctx context.Context, cfg S3Config, site, jobName stri
 		Key:    aws.String(cacheKey),
 	}, s3.WithPresignExpires(presignExpiry))
 	if err != nil {
-		return PresignedURLs{}, fmt.Errorf("presigning cache download: %w", err)
+		return presignedURLs{}, fmt.Errorf("presigning cache download: %w", err)
 	}
 
 	cacheUpload, err := presigner.PresignPutObject(ctx, &s3.PutObjectInput{
@@ -60,10 +60,10 @@ func GeneratePresignedURLs(ctx context.Context, cfg S3Config, site, jobName stri
 		Key:    aws.String(cacheKey),
 	}, s3.WithPresignExpires(presignExpiry))
 	if err != nil {
-		return PresignedURLs{}, fmt.Errorf("presigning cache upload: %w", err)
+		return presignedURLs{}, fmt.Errorf("presigning cache upload: %w", err)
 	}
 
-	return PresignedURLs{
+	return presignedURLs{
 		LogsUpload:    logsUpload.URL,
 		CacheDownload: cacheDownload.URL,
 		CacheUpload:   cacheUpload.URL,
