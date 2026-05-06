@@ -42,6 +42,10 @@ type cfWorkersJobOpts struct {
 	BuilderImage string
 	// TTLSeconds controls how long the Job is kept after completion.
 	TTLSeconds int32
+	// ExtraEnvs are additional plain env vars from spec.build.envs.
+	ExtraEnvs []decositesv1alpha1.DecoEnvVar
+	// ExtraSecrets are K8s Secrets to mount as env vars from spec.build.secrets.
+	ExtraSecrets []decositesv1alpha1.DecoSecretRef
 }
 
 // newCfWorkersJob builds the batchv1.Job spec for a cfworkers build.
@@ -86,6 +90,19 @@ func newCfWorkersJob(opts cfWorkersJobOpts) *batchv1.Job {
 	if opts.GithubToken != "" {
 		env = append(env, corev1.EnvVar{Name: "GITHUB_TOKEN", Value: opts.GithubToken})
 	}
+	for _, e := range opts.ExtraEnvs {
+		env = append(env, corev1.EnvVar{Name: e.Name, Value: e.Value})
+	}
+
+	var envFrom []corev1.EnvFromSource
+	for _, s := range opts.ExtraSecrets {
+		envFrom = append(envFrom, corev1.EnvFromSource{
+			SecretRef: &corev1.SecretEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: s.Name},
+				Optional:             s.Optional,
+			},
+		})
+	}
 
 	backoffLimit := int32(0)
 	ttl := opts.TTLSeconds
@@ -108,9 +125,10 @@ func newCfWorkersJob(opts cfWorkersJobOpts) *batchv1.Job {
 					RestartPolicy: corev1.RestartPolicyNever,
 					Containers: []corev1.Container{
 						{
-							Name:  "builder",
-							Image: builderImage,
-							Env:   env,
+							Name:    "builder",
+							Image:   builderImage,
+							Env:     env,
+							EnvFrom: envFrom,
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
 									corev1.ResourceMemory:           resource.MustParse("1Gi"),
@@ -173,6 +191,13 @@ func (b *cfWorkersBuilder) NewJob(ctx context.Context, deco *decositesv1alpha1.D
 	if err != nil {
 		return nil, fmt.Errorf("generating presigned URLs: %w", err)
 	}
+	var extraEnvs []decositesv1alpha1.DecoEnvVar
+	var extraSecrets []decositesv1alpha1.DecoSecretRef
+	if deco.Spec.Build != nil {
+		extraEnvs = deco.Spec.Build.Envs
+		extraSecrets = deco.Spec.Build.Secrets
+	}
+
 	return newCfWorkersJob(cfWorkersJobOpts{
 		Deco:           deco,
 		JobName:        jobName,
@@ -183,5 +208,7 @@ func (b *cfWorkersBuilder) NewJob(ctx context.Context, deco *decositesv1alpha1.D
 		SourceOverride: &source,
 		BuilderImage:   b.cfg.BuilderImage,
 		TTLSeconds:     b.cfg.TTLSeconds,
+		ExtraEnvs:      extraEnvs,
+		ExtraSecrets:   extraSecrets,
 	}), nil
 }

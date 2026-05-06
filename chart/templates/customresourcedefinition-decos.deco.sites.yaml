@@ -2,7 +2,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.18.0
+    controller-gen.kubebuilder.io/version: v0.21.0
   name: decos.deco.sites
 spec:
   group: deco.sites
@@ -60,6 +60,43 @@ spec:
                   builder:
                     description: Builder overrides the builder image (repository:tag).
                     type: string
+                  envs:
+                    description: Envs are additional plain environment variables injected
+                      into the build Job.
+                    items:
+                      description: DecoEnvVar is a plain environment variable injected
+                        into the build Job.
+                      properties:
+                        name:
+                          description: Name is the environment variable name.
+                          type: string
+                        value:
+                          description: Value is the literal value.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                  secrets:
+                    description: |-
+                      Secrets are K8s Secrets whose keys are mounted as environment variables in the build Job.
+                      The secrets must exist in the same namespace as the Job (the site namespace).
+                    items:
+                      description: DecoSecretRef mounts all keys of a K8s Secret as
+                        environment variables in the build Job.
+                      properties:
+                        name:
+                          description: Name is the name of the K8s Secret in the same
+                            namespace as the Job.
+                          type: string
+                        optional:
+                          description: Optional specifies whether the Secret must
+                            exist. Defaults to false.
+                          type: boolean
+                      required:
+                      - name
+                      type: object
+                    type: array
                   source:
                     description: |-
                       Source identifies the code revision to build.

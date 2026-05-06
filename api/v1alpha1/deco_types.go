@@ -34,6 +34,26 @@ type DecoSpec struct {
 	Previews *DecoPreviewPolicy `json:"previews,omitempty"`
 }
 
+// DecoEnvVar is a plain environment variable injected into the build Job.
+type DecoEnvVar struct {
+	// Name is the environment variable name.
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+	// Value is the literal value.
+	// +optional
+	Value string `json:"value,omitempty"`
+}
+
+// DecoSecretRef mounts all keys of a K8s Secret as environment variables in the build Job.
+type DecoSecretRef struct {
+	// Name is the name of the K8s Secret in the same namespace as the Job.
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+	// Optional specifies whether the Secret must exist. Defaults to false.
+	// +optional
+	Optional *bool `json:"optional,omitempty"`
+}
+
 // DecoSpecBuild describes the build pipeline for a workload.
 type DecoSpecBuild struct {
 	// Type is the build mechanism. Currently only k8s-job is supported.
@@ -47,6 +67,15 @@ type DecoSpecBuild struct {
 	// Builder overrides the builder image (repository:tag).
 	// +optional
 	Builder string `json:"builder,omitempty"`
+
+	// Envs are additional plain environment variables injected into the build Job.
+	// +optional
+	Envs []DecoEnvVar `json:"envs,omitempty"`
+
+	// Secrets are K8s Secrets whose keys are mounted as environment variables in the build Job.
+	// The secrets must exist in the same namespace as the Job (the site namespace).
+	// +optional
+	Secrets []DecoSecretRef `json:"secrets,omitempty"`
 }
 
 // DecoSpecBuildSource identifies the code revision to build.
