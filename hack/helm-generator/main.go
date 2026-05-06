@@ -188,7 +188,7 @@ func addEnvVarsToDeployment(templatesDir string) error {
 	contentStr := string(content)
 
 	// Find the image line and add env vars after it
-	envBlock := `        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret }}
+	envBlock := `        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret .Values.cfworkers.builderImage .Values.cfworkers.s3Region .Values.cfworkers.s3LogsBucket .Values.cfworkers.s3CacheBucket }}
         env:
         {{- if and .Values.github .Values.github.existingSecret }}
         - name: GITHUB_TOKEN
@@ -240,11 +240,22 @@ func addEnvVarsToDeployment(templatesDir string) error {
             secretKeyRef:
               name: {{ .existingSecret | quote }}
               key: s3-secret-access-key
+        {{- end }}
+        {{- if .s3Region }}
         - name: S3_REGION
-          valueFrom:
-            secretKeyRef:
-              name: {{ .existingSecret | quote }}
-              key: s3-region
+          value: {{ .s3Region | quote }}
+        {{- end }}
+        {{- if .s3LogsBucket }}
+        - name: S3_LOGS_BUCKET
+          value: {{ .s3LogsBucket | quote }}
+        {{- end }}
+        {{- if .s3CacheBucket }}
+        - name: S3_CACHE_BUCKET
+          value: {{ .s3CacheBucket | quote }}
+        {{- end }}
+        {{- if .builderImage }}
+        - name: CFWORKERS_BUILDER_IMAGE
+          value: {{ .builderImage | quote }}
         {{- end }}
         {{- end }}
         {{- end }}`

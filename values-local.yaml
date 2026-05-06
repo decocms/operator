@@ -1,0 +1,34 @@
+image:
+  repository: operator
+  tag: local
+  pullPolicy: Never
+
+replicaCount: 1
+certManager:
+  enabled: true
+webhook:
+  enabled: false
+leaderElection:
+  enabled: false
+
+github:
+  existingSecret: deco-operator-github-token
+  existingSecretKey: token
+
+valkey:
+  sentinelUrls: ""
+
+cfworkers:
+  existingSecret: deco-operator-cfworkers
+  s3Region: sa-east-1
+  s3LogsBucket: ""      # set via S3_LOGS_BUCKET env or here
+  s3CacheBucket: ""     # set via S3_CACHE_BUCKET env or here
+  builderImage: ""      # set via CFWORKERS_BUILDER_IMAGE env or here
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
