@@ -93,7 +93,8 @@ func newCfWorkersJob(opts cfWorkersJobOpts) *batchv1.Job {
 	}
 
 	var envFrom []corev1.EnvFromSource
-	if opts.Deco.Spec.Build != nil {
+	if opts.Deco.Spec.Build != nil && len(opts.Deco.Spec.Build.Secrets) > 0 {
+		envFrom = make([]corev1.EnvFromSource, 0, len(opts.Deco.Spec.Build.Secrets))
 		for _, s := range opts.Deco.Spec.Build.Secrets {
 			envFrom = append(envFrom, corev1.EnvFromSource{
 				SecretRef: &corev1.SecretEnvSource{
@@ -106,6 +107,9 @@ func newCfWorkersJob(opts cfWorkersJobOpts) *batchv1.Job {
 
 	backoffLimit := int32(0)
 	ttl := opts.TTLSeconds
+	if spec.Build != nil && spec.Build.TTLSecondsAfterFinished != nil {
+		ttl = *spec.Build.TTLSecondsAfterFinished
+	}
 
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -165,7 +169,7 @@ func CfWorkersConfigFromEnv() CfWorkersConfig {
 		CfAccountId:  os.Getenv("CLOUDFLARE_ACCOUNT_ID"),
 		GithubToken:  os.Getenv("GITHUB_TOKEN"),
 		BuilderImage: os.Getenv("CFWORKERS_BUILDER_IMAGE"),
-		TTLSeconds:   24 * 60 * 60,
+		TTLSeconds:   10 * 60,
 		S3: S3Config{
 			Region:          os.Getenv("S3_REGION"),
 			AccessKeyID:     os.Getenv("S3_ACCESS_KEY_ID"),

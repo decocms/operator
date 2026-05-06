@@ -118,6 +118,13 @@ spec:
                     required:
                     - commitSha
                     type: object
+                  ttlSecondsAfterFinished:
+                    description: |-
+                      TTLSecondsAfterFinished controls how long the Job is kept after completion.
+                      Defaults to 600 (10 minutes) when not set.
+                    format: int32
+                    minimum: 0
+                    type: integer
                   type:
                     description: Type is the build mechanism. Currently only k8s-job
                       is supported.

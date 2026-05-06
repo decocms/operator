@@ -76,6 +76,12 @@ type DecoSpecBuild struct {
 	// The secrets must exist in the same namespace as the Job (the site namespace).
 	// +optional
 	Secrets []DecoSecretRef `json:"secrets,omitempty"`
+
+	// TTLSecondsAfterFinished controls how long the Job is kept after completion.
+	// Defaults to 600 (10 minutes) when not set.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	TTLSecondsAfterFinished *int32 `json:"ttlSecondsAfterFinished,omitempty"`
 }
 
 // DecoSpecBuildSource identifies the code revision to build.
