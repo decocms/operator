@@ -329,7 +329,7 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	registry := build.NewRegistry()
+	registry := build.NewBuilderRegistry()
 	registry.Register("cloudflare-worker", build.NewCloudflareFactory(build.CfWorkersConfigFromEnv()))
 
 	if err := (&controller.DecoReconciler{

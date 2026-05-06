@@ -33,7 +33,7 @@ func testDeco(servingType string) *decositesv1alpha1.Deco {
 
 func TestRegistry_DispatchesToRegisteredBuilder(t *testing.T) {
 	want := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "build-abc"}}
-	r := NewRegistry()
+	r := NewBuilderRegistry()
 	r.Register("cloudflare-worker", &stubBuilder{job: want})
 
 	got, err := r.NewJob(context.Background(), testDeco("cloudflare-worker"), "build-abc", decositesv1alpha1.DecoSpecBuildSource{CommitSha: "abc"})
@@ -46,7 +46,7 @@ func TestRegistry_DispatchesToRegisteredBuilder(t *testing.T) {
 }
 
 func TestRegistry_ErrorsOnUnknownServingType(t *testing.T) {
-	r := NewRegistry()
+	r := NewBuilderRegistry()
 	_, err := r.NewJob(context.Background(), testDeco("unknown"), "job", decositesv1alpha1.DecoSpecBuildSource{})
 	if err == nil {
 		t.Fatal("expected error for unregistered serving type")

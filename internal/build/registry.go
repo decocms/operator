@@ -17,21 +17,21 @@ type Builder interface {
 	NewJob(ctx context.Context, deco *decositesv1alpha1.Deco, jobName string, source decositesv1alpha1.DecoSpecBuildSource) (*batchv1.Job, error)
 }
 
-// Registry dispatches to the correct Builder by spec.serving.type.
-// Registry itself satisfies Builder.
-type Registry struct {
+// BuilderRegistry dispatches to the correct Builder by spec.serving.type.
+// BuilderRegistry itself satisfies Builder.
+type BuilderRegistry struct {
 	platforms map[string]Builder
 }
 
-func NewRegistry() *Registry {
-	return &Registry{platforms: map[string]Builder{}}
+func NewBuilderRegistry() *BuilderRegistry {
+	return &BuilderRegistry{platforms: map[string]Builder{}}
 }
 
-func (r *Registry) Register(servingType string, b Builder) {
+func (r *BuilderRegistry) Register(servingType string, b Builder) {
 	r.platforms[servingType] = b
 }
 
-func (r *Registry) NewJob(ctx context.Context, deco *decositesv1alpha1.Deco, jobName string, source decositesv1alpha1.DecoSpecBuildSource) (*batchv1.Job, error) {
+func (r *BuilderRegistry) NewJob(ctx context.Context, deco *decositesv1alpha1.Deco, jobName string, source decositesv1alpha1.DecoSpecBuildSource) (*batchv1.Job, error) {
 	b, ok := r.platforms[deco.Spec.Serving.Type]
 	if !ok {
 		return nil, fmt.Errorf("%w %q", errNoFactory, deco.Spec.Serving.Type)
