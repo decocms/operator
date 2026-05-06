@@ -146,14 +146,14 @@ func CfWorkersConfigFromEnv() CfWorkersConfig {
 		CfApiToken:   os.Getenv("CLOUDFLARE_API_WORKERS_TOKEN"),
 		CfAccountId:  os.Getenv("CLOUDFLARE_ACCOUNT_ID"),
 		GithubToken:  os.Getenv("GITHUB_TOKEN"),
-		BuilderImage: envOrDefault("CFWORKERS_BUILDER_IMAGE", "ghcr.io/decocms/infra_applications/cfworkers-builder:latest"),
+		BuilderImage: os.Getenv("CFWORKERS_BUILDER_IMAGE"),
 		TTLSeconds:   24 * 60 * 60,
 		S3: S3Config{
-			Region:          envOrDefault("S3_REGION", "sa-east-1"),
+			Region:          os.Getenv("S3_REGION"),
 			AccessKeyID:     os.Getenv("S3_ACCESS_KEY_ID"),
 			SecretAccessKey: os.Getenv("S3_SECRET_ACCESS_KEY"),
-			LogsBucket:      envOrDefault("S3_LOGS_BUCKET", "new-deco-sites-build-logs"),
-			CacheBucket:     envOrDefault("S3_CACHE_BUCKET", "new-deco-cfworkers-deployments"),
+			LogsBucket:      os.Getenv("S3_LOGS_BUCKET"),
+			CacheBucket:     os.Getenv("S3_CACHE_BUCKET"),
 		},
 	}
 }
@@ -184,11 +184,4 @@ func (b *cfWorkersBuilder) NewJob(ctx context.Context, deco *decositesv1alpha1.D
 		BuilderImage:   b.cfg.BuilderImage,
 		TTLSeconds:     b.cfg.TTLSeconds,
 	}), nil
-}
-
-func envOrDefault(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
 }
