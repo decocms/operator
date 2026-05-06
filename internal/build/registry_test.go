@@ -11,8 +11,8 @@ import (
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
 )
 
-// Compile-time: Registry must satisfy Builder.
-var _ Builder = (*Registry)(nil)
+// Compile-time: BuilderRegistry must satisfy Builder.
+var _ Builder = (*BuilderRegistry)(nil)
 
 type stubBuilder struct{ job *batchv1.Job }
 
