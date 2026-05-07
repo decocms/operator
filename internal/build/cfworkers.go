@@ -23,10 +23,7 @@ func JobName(commitSha, site string) string {
 
 // presignedURLs are the S3 presigned URLs the build job needs.
 type presignedURLs struct {
-	LogsUpload    string
-	CacheDownload string
-	CacheUpload   string
-	StateDownload string
+	LogsUpload string
 }
 
 // cfWorkersJobOpts are the inputs for NewJob.
@@ -37,6 +34,7 @@ type cfWorkersJobOpts struct {
 	CfApiToken    string
 	CfAccountId   string
 	presignedURLs presignedURLs
+	S3            S3Config
 	// SourceOverride replaces spec.build.source when set (used for preview builds).
 	SourceOverride *decositesv1alpha1.DecoSpecBuildSource
 	// BuilderImage is the platform default. spec.build.builder in the CR takes precedence when set.
@@ -78,9 +76,11 @@ func newCfWorkersJob(opts cfWorkersJobOpts) *batchv1.Job {
 		{Name: "CF_ACCOUNT_ID", Value: opts.CfAccountId},
 		{Name: "CLOUDFLARE_API_TOKEN", Value: opts.CfApiToken},
 		{Name: "LOGS_UPLOAD_URL", Value: opts.presignedURLs.LogsUpload},
-		{Name: "CACHE_DOWNLOAD_URL", Value: opts.presignedURLs.CacheDownload},
-		{Name: "CACHE_UPLOAD_URL", Value: opts.presignedURLs.CacheUpload},
-		{Name: "STATE_DOWNLOAD_URL", Value: opts.presignedURLs.StateDownload},
+		{Name: "S3_ARTIFACTS_BUCKET", Value: opts.S3.ArtifactsBucket},
+		{Name: "S3_STATE_BUCKET", Value: opts.S3.StateBucket},
+		{Name: "S3_REGION", Value: opts.S3.Region},
+		{Name: "S3_ACCESS_KEY_ID", Value: opts.S3.AccessKeyID},
+		{Name: "S3_SECRET_ACCESS_KEY", Value: opts.S3.SecretAccessKey},
 	}
 	if src.BranchRef != "" {
 		env = append(env, corev1.EnvVar{Name: "BRANCH_REF", Value: src.BranchRef})
@@ -206,6 +206,7 @@ func (b *cfWorkersBuilder) NewJob(ctx context.Context, deco *decositesv1alpha1.D
 		CfApiToken:     b.cfg.CfApiToken,
 		CfAccountId:    b.cfg.CfAccountId,
 		presignedURLs:  urls,
+		S3:             b.cfg.S3,
 		SourceOverride: &source,
 		BuilderImage:   b.cfg.BuilderImage,
 		TTLSeconds:     b.cfg.TTLSeconds,

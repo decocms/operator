@@ -19,12 +19,11 @@ type S3Config struct {
 	AccessKeyID     string
 	SecretAccessKey string
 	LogsBucket      string // bucket for build logs
-	ArtifactsBucket string // bucket for build artifacts
-	StateBucket     string // bucket for per-site state (defaults to ArtifactsBucket)
+	ArtifactsBucket string // bucket for npm cache
+	StateBucket     string // bucket for per-site state (defaults to deco-admin-states)
 }
 
-// GeneratepresignedURLs generates all presigned URLs the build job needs.
-// Mirrors generatePresignedUrls() in the admin's build.ts.
+// generatePresignedURLs generates the presigned URLs the build job needs.
 func generatePresignedURLs(ctx context.Context, cfg S3Config, site, jobName string) (presignedURLs, error) {
 	awsCfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(cfg.Region),
@@ -46,40 +45,7 @@ func generatePresignedURLs(ctx context.Context, cfg S3Config, site, jobName stri
 		return presignedURLs{}, fmt.Errorf("presigning logs upload: %w", err)
 	}
 
-	cacheKey := fmt.Sprintf("%s/npm-cache.tar.zst", site)
-
-	cacheDownload, err := presigner.PresignGetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(cfg.ArtifactsBucket),
-		Key:    aws.String(cacheKey),
-	}, s3.WithPresignExpires(presignExpiry))
-	if err != nil {
-		return presignedURLs{}, fmt.Errorf("presigning cache download: %w", err)
-	}
-
-	cacheUpload, err := presigner.PresignPutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(cfg.ArtifactsBucket),
-		Key:    aws.String(cacheKey),
-	}, s3.WithPresignExpires(presignExpiry))
-	if err != nil {
-		return presignedURLs{}, fmt.Errorf("presigning cache upload: %w", err)
-	}
-
-	stateBucket := cfg.StateBucket
-	if stateBucket == "" {
-		stateBucket = "deco-admin-states"
-	}
-	stateDownload, err := presigner.PresignGetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(stateBucket),
-		Key:    aws.String(fmt.Sprintf("site-state/%s/state.json", site)),
-	}, s3.WithPresignExpires(presignExpiry))
-	if err != nil {
-		return presignedURLs{}, fmt.Errorf("presigning state download: %w", err)
-	}
-
 	return presignedURLs{
-		LogsUpload:    logsUpload.URL,
-		CacheDownload: cacheDownload.URL,
-		CacheUpload:   cacheUpload.URL,
-		StateDownload: stateDownload.URL,
+		LogsUpload: logsUpload.URL,
 	}, nil
 }
