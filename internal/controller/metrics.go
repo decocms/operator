@@ -21,10 +21,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
+const (
+	metricsNamespace       = "deco_operator"
+	metricsSubsystemValkey = "valkey"
+)
+
 var (
 	// cfworkersBuildDuration tracks how long each build took (seconds), labelled by site, status, and build type.
 	cfworkersBuildDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: "deco_operator",
+		Namespace: metricsNamespace,
 		Subsystem: "cfworkers",
 		Name:      "build_duration_seconds",
 		Help:      "Duration of cfworkers build jobs in seconds.",
@@ -33,7 +38,7 @@ var (
 
 	// cfworkersBuildTotal counts completed builds by site, status, and type.
 	cfworkersBuildTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "deco_operator",
+		Namespace: metricsNamespace,
 		Subsystem: "cfworkers",
 		Name:      "builds_total",
 		Help:      "Total number of cfworkers builds completed.",
@@ -41,40 +46,40 @@ var (
 
 	// valkeyACLProvisioned counts successful ACL user + Secret provisioning operations.
 	valkeyACLProvisioned = prometheus.NewCounter(prometheus.CounterOpts{
-		Namespace: "deco_operator",
-		Subsystem: "valkey",
+		Namespace: metricsNamespace,
+		Subsystem: metricsSubsystemValkey,
 		Name:      "acl_provisioned_total",
 		Help:      "Total number of Valkey ACL users provisioned (new or re-provisioned).",
 	})
 
 	// valkeyACLDeleted counts ACL user deletions triggered by namespace removal.
 	valkeyACLDeleted = prometheus.NewCounter(prometheus.CounterOpts{
-		Namespace: "deco_operator",
-		Subsystem: "valkey",
+		Namespace: metricsNamespace,
+		Subsystem: metricsSubsystemValkey,
 		Name:      "acl_deleted_total",
 		Help:      "Total number of Valkey ACL users deleted on namespace removal.",
 	})
 
 	// valkeyACLErrors counts failures when interacting with Valkey.
 	valkeyACLErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "deco_operator",
-		Subsystem: "valkey",
+		Namespace: metricsNamespace,
+		Subsystem: metricsSubsystemValkey,
 		Name:      "acl_errors_total",
 		Help:      "Total number of Valkey ACL operation errors by operation type.",
 	}, []string{"operation"}) // operation: upsert | delete | check
 
 	// valkeyACLSelfHealed counts how many times an ACL was re-created after Valkey restart.
 	valkeyACLSelfHealed = prometheus.NewCounter(prometheus.CounterOpts{
-		Namespace: "deco_operator",
-		Subsystem: "valkey",
+		Namespace: metricsNamespace,
+		Subsystem: metricsSubsystemValkey,
 		Name:      "acl_self_healed_total",
 		Help:      "Total number of Valkey ACL users re-provisioned after being lost (e.g. Valkey restart).",
 	})
 
 	// valkeyTenantsProvisioned tracks the current number of provisioned tenants (gauge).
 	valkeyTenantsProvisioned = prometheus.NewGauge(prometheus.GaugeOpts{
-		Namespace: "deco_operator",
-		Subsystem: "valkey",
+		Namespace: metricsNamespace,
+		Subsystem: metricsSubsystemValkey,
 		Name:      "tenants_provisioned",
 		Help:      "Current number of site namespaces with a provisioned Valkey ACL user.",
 	})
@@ -82,8 +87,8 @@ var (
 	// valkeySentinelFailovers counts Sentinel +switch-master events received.
 	// Each event triggers an immediate full ACL resync to all nodes.
 	valkeySentinelFailovers = prometheus.NewCounter(prometheus.CounterOpts{
-		Namespace: "deco_operator",
-		Subsystem: "valkey",
+		Namespace: metricsNamespace,
+		Subsystem: metricsSubsystemValkey,
 		Name:      "sentinel_failovers_total",
 		Help:      "Total number of Sentinel master failovers detected via +switch-master pub/sub.",
 	})

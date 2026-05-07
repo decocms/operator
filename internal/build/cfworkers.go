@@ -176,7 +176,7 @@ func CfWorkersConfigFromEnv() CfWorkersConfig {
 			AccessKeyID:     os.Getenv("S3_ACCESS_KEY_ID"),
 			SecretAccessKey: os.Getenv("S3_SECRET_ACCESS_KEY"),
 			LogsBucket:      os.Getenv("S3_LOGS_BUCKET"),
-			ArtifactsBucket:     os.Getenv("S3_ARTIFACTS_BUCKET"),
+			ArtifactsBucket: os.Getenv("S3_ARTIFACTS_BUCKET"),
 		},
 	}
 }

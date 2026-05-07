@@ -22,6 +22,7 @@ import (
 )
 
 const (
+	phaseRunning   = "Running"
 	phaseSucceeded = "Succeeded"
 	phaseFailed    = "Failed"
 )
@@ -101,7 +102,7 @@ func (r *DecoReconciler) reconcileProductionBuild(ctx context.Context, log logr.
 		if patch.Status.Build == nil {
 			patch.Status.Build = &decositesv1alpha1.DecoStatusBuild{}
 		}
-		patch.Status.Build.Phase = "Running"
+		patch.Status.Build.Phase = phaseRunning
 		patch.Status.Build.CommitSha = commitSha
 		patch.Status.Build.JobName = jobName
 		patch.Status.Build.StartTime = &now
@@ -270,7 +271,7 @@ func buildPhaseFromJob(job *batchv1.Job) string {
 			return phaseFailed
 		}
 	}
-	return "Running"
+	return phaseRunning
 }
 
 func (r *DecoReconciler) SetupWithManager(mgr ctrl.Manager) error {
