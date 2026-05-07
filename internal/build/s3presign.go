@@ -66,11 +66,11 @@ func generatePresignedURLs(ctx context.Context, cfg S3Config, site, jobName stri
 
 	stateBucket := cfg.StateBucket
 	if stateBucket == "" {
-		stateBucket = cfg.ArtifactsBucket
+		stateBucket = "deco-admin-states"
 	}
 	stateDownload, err := presigner.PresignGetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(stateBucket),
-		Key:    aws.String(fmt.Sprintf("cfworkers/%s/state.json", site)),
+		Key:    aws.String(fmt.Sprintf("site-state/%s/state.json", site)),
 	}, s3.WithPresignExpires(presignExpiry))
 	if err != nil {
 		return presignedURLs{}, fmt.Errorf("presigning state download: %w", err)
