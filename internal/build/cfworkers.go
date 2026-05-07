@@ -33,12 +33,12 @@ type S3Config struct {
 
 // cfWorkersJobOpts are the inputs for NewJob.
 type cfWorkersJobOpts struct {
-	Deco          *decositesv1alpha1.Deco
-	JobName       string
-	GithubToken   string
-	CfApiToken    string
-	CfAccountId   string
-	S3            S3Config
+	Deco        *decositesv1alpha1.Deco
+	JobName     string
+	GithubToken string
+	CfApiToken  string
+	CfAccountId string
+	S3          S3Config
 	// SourceOverride replaces spec.build.source when set (used for preview builds).
 	SourceOverride *decositesv1alpha1.DecoSpecBuildSource
 	// BuilderImage is the platform default. spec.build.builder in the CR takes precedence when set.
