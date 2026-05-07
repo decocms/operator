@@ -93,15 +93,16 @@ func newCfWorkersJob(opts cfWorkersJobOpts) *batchv1.Job {
 	}
 
 	var envFrom []corev1.EnvFromSource
-	if opts.Deco.Spec.Build != nil && len(opts.Deco.Spec.Build.Secrets) > 0 {
-		envFrom = make([]corev1.EnvFromSource, 0, len(opts.Deco.Spec.Build.Secrets))
-		for _, s := range opts.Deco.Spec.Build.Secrets {
-			envFrom = append(envFrom, corev1.EnvFromSource{
+	if opts.Deco.Spec.Build != nil {
+		secrets := opts.Deco.Spec.Build.Secrets
+		envFrom = make([]corev1.EnvFromSource, len(secrets))
+		for i, s := range secrets {
+			envFrom[i] = corev1.EnvFromSource{
 				SecretRef: &corev1.SecretEnvSource{
 					LocalObjectReference: corev1.LocalObjectReference{Name: s.Name},
 					Optional:             s.Optional,
 				},
-			})
+			}
 		}
 	}
 
