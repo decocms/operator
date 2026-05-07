@@ -20,6 +20,7 @@ type S3Config struct {
 	SecretAccessKey string
 	LogsBucket      string // bucket for build logs
 	ArtifactsBucket string // bucket for build artifacts
+	StateBucket     string // bucket for per-site state (defaults to ArtifactsBucket)
 }
 
 // GeneratepresignedURLs generates all presigned URLs the build job needs.
@@ -63,9 +64,22 @@ func generatePresignedURLs(ctx context.Context, cfg S3Config, site, jobName stri
 		return presignedURLs{}, fmt.Errorf("presigning cache upload: %w", err)
 	}
 
+	stateBucket := cfg.StateBucket
+	if stateBucket == "" {
+		stateBucket = cfg.ArtifactsBucket
+	}
+	stateDownload, err := presigner.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(stateBucket),
+		Key:    aws.String(fmt.Sprintf("cfworkers/%s/state.json", site)),
+	}, s3.WithPresignExpires(presignExpiry))
+	if err != nil {
+		return presignedURLs{}, fmt.Errorf("presigning state download: %w", err)
+	}
+
 	return presignedURLs{
 		LogsUpload:    logsUpload.URL,
 		CacheDownload: cacheDownload.URL,
 		CacheUpload:   cacheUpload.URL,
+		StateDownload: stateDownload.URL,
 	}, nil
 }

@@ -26,6 +26,7 @@ type presignedURLs struct {
 	LogsUpload    string
 	CacheDownload string
 	CacheUpload   string
+	StateDownload string
 }
 
 // cfWorkersJobOpts are the inputs for NewJob.
@@ -79,6 +80,7 @@ func newCfWorkersJob(opts cfWorkersJobOpts) *batchv1.Job {
 		{Name: "LOGS_UPLOAD_URL", Value: opts.presignedURLs.LogsUpload},
 		{Name: "CACHE_DOWNLOAD_URL", Value: opts.presignedURLs.CacheDownload},
 		{Name: "CACHE_UPLOAD_URL", Value: opts.presignedURLs.CacheUpload},
+		{Name: "STATE_DOWNLOAD_URL", Value: opts.presignedURLs.StateDownload},
 	}
 	if src.BranchRef != "" {
 		env = append(env, corev1.EnvVar{Name: "BRANCH_REF", Value: src.BranchRef})
@@ -177,6 +179,7 @@ func CfWorkersConfigFromEnv() CfWorkersConfig {
 			SecretAccessKey: os.Getenv("S3_SECRET_ACCESS_KEY"),
 			LogsBucket:      os.Getenv("S3_LOGS_BUCKET"),
 			ArtifactsBucket: os.Getenv("S3_ARTIFACTS_BUCKET"),
+			StateBucket:     os.Getenv("S3_STATE_BUCKET"),
 		},
 	}
 }

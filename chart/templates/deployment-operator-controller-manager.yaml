@@ -104,6 +104,10 @@ spec:
         - name: S3_LOGS_BUCKET
           value: {{ .logsBucket | quote }}
         {{- end }}
+        {{- if .stateBucket }}
+        - name: S3_STATE_BUCKET
+          value: {{ .stateBucket | quote }}
+        {{- end }}
         {{- end }}
         {{- end }}
         livenessProbe:
