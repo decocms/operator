@@ -49,6 +49,7 @@ func (r *DecoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{}, err
 	}
 
+	base := deco.DeepCopy()
 	patch := deco.DeepCopy()
 	statusChanged := false
 
@@ -72,7 +73,7 @@ func (r *DecoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	if statusChanged {
-		return ctrl.Result{}, r.Status().Update(ctx, patch)
+		return ctrl.Result{}, r.Status().Patch(ctx, patch, client.MergeFrom(base))
 	}
 	return ctrl.Result{}, nil
 }
