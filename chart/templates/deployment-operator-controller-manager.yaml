@@ -31,7 +31,7 @@ spec:
         command:
         - /manager
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) (and .Values.valkey (get .Values.valkey "sentinelUrls")) }}
+        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret .Values.cfworkers.builderImage .Values.cfworkers.artifactsBucket .Values.s3.existingSecret .Values.s3.region .Values.s3.logsBucket }}
         env:
         {{- if and .Values.github .Values.github.existingSecret }}
         - name: GITHUB_TOKEN
@@ -59,6 +59,50 @@ spec:
         - name: VALKEY_ADMIN_PASSWORD
           value: {{ .adminPassword | quote }}
         {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- with .Values.cfworkers }}
+        {{- if .existingSecret }}
+        - name: CLOUDFLARE_API_WORKERS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .existingSecret | quote }}
+              key: cf-api-token
+        - name: CLOUDFLARE_ACCOUNT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ .existingSecret | quote }}
+              key: cf-account-id
+        {{- end }}
+        {{- if .builderImage }}
+        - name: CFWORKERS_BUILDER_IMAGE
+          value: {{ .builderImage | quote }}
+        {{- end }}
+        {{- if .artifactsBucket }}
+        - name: S3_ARTIFACTS_BUCKET
+          value: {{ .artifactsBucket | quote }}
+        {{- end }}
+        {{- end }}
+        {{- with .Values.s3 }}
+        {{- if .existingSecret }}
+        - name: S3_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ .existingSecret | quote }}
+              key: s3-access-key-id
+        - name: S3_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ .existingSecret | quote }}
+              key: s3-secret-access-key
+        {{- end }}
+        {{- if .region }}
+        - name: S3_REGION
+          value: {{ .region | quote }}
+        {{- end }}
+        {{- if .logsBucket }}
+        - name: S3_LOGS_BUCKET
+          value: {{ .logsBucket | quote }}
         {{- end }}
         {{- end }}
         {{- end }}

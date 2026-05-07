@@ -43,9 +43,20 @@ rules:
   - list
   - watch
 - apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
   - deco.sites
   resources:
   - decofiles
+  - decos
   verbs:
   - create
   - delete
@@ -58,12 +69,14 @@ rules:
   - deco.sites
   resources:
   - decofiles/finalizers
+  - decos/finalizers
   verbs:
   - update
 - apiGroups:
   - deco.sites
   resources:
   - decofiles/status
+  - decos/status
   verbs:
   - get
   - patch

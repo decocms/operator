@@ -41,10 +41,11 @@ import (
 )
 
 const (
-	valkeyACLAnnotation = "deco.sites/valkey-acl"
-	valkeyACLFinalizer  = "deco.sites/valkey-acl"
-	valkeySecretName    = "valkey-acl"
-	siteNamespacePrefix = "sites-"
+	valkeyACLAnnotation   = "deco.sites/valkey-acl"
+	valkeyACLFinalizer    = "deco.sites/valkey-acl"
+	valkeySecretName      = "valkey-acl"
+	siteNamespacePrefix   = "sites-"
+	valkeyReservedDefault = "default"
 )
 
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;update;patch
@@ -357,8 +358,8 @@ func (r *NamespaceReconciler) createSecret(ctx context.Context, namespace, usern
 // unauthenticated connections and health probes. "redis-root" is reserved for
 // the dedicated operator admin user used when auth.enabled: true.
 var reservedValkeyUsernames = map[string]bool{
-	"default":    true,
-	"redis-root": true,
+	valkeyReservedDefault: true,
+	"redis-root":          true,
 }
 
 // siteNameFromNamespace derives the Valkey ACL username from the K8s namespace name.

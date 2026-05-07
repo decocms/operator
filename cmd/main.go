@@ -45,6 +45,7 @@ import (
 	servingknativedevv1 "knative.dev/serving/pkg/apis/serving/v1"
 
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
+	"github.com/deco-sites/decofile-operator/internal/build"
 	"github.com/deco-sites/decofile-operator/internal/controller"
 	"github.com/deco-sites/decofile-operator/internal/valkey"
 	webhookv1 "github.com/deco-sites/decofile-operator/internal/webhook/v1"
@@ -327,6 +328,17 @@ func main() {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Decofile")
 			os.Exit(1)
 		}
+	}
+	registry := build.NewBuilderRegistry()
+	registry.Register("cloudflare-worker", build.NewCloudflareFactory(build.CfWorkersConfigFromEnv()))
+
+	if err := (&controller.DecoReconciler{
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Builder: registry,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Deco")
+		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
 

@@ -95,6 +95,18 @@ podAnnotations: {}
 # Pod labels
 podLabels: {}
 
+# Cloudflare Workers build support
+cfworkers:
+  existingSecret: ""    # Secret with cf-api-token, cf-account-id
+  builderImage: ""      # Builder container image (repository:tag)
+  artifactsBucket: ""   # S3 bucket for build artifacts (cfworkers-specific)
+
+# S3 credentials and config — shared across all build platforms
+s3:
+  existingSecret: ""    # Secret with s3-access-key-id, s3-secret-access-key
+  region: ""            # AWS region (e.g. us-east-1)
+  logsBucket: ""        # S3 bucket for build logs
+
 # Name overrides
 nameOverride: ""
 fullnameOverride: ""

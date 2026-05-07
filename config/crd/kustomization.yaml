@@ -2,6 +2,7 @@
 # since it depends on service name and namespace that are out of this kustomize package.
 # It should be run by config/default
 resources:
+- bases/deco.sites_decos.yaml
 - bases/deco.sites_decofiles.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 

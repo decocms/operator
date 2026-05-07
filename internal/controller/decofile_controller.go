@@ -36,6 +36,8 @@ import (
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
 )
 
+const condTypePodsNotified = "PodsNotified"
+
 // DecofileReconciler reconciles a Decofile object
 type DecofileReconciler struct {
 	client.Client
@@ -93,7 +95,7 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				// Check if notification is in progress or failed
 				hasIncompleteNotification := false
 				for _, cond := range decofile.Status.Conditions {
-					if cond.Type == "PodsNotified" &&
+					if cond.Type == condTypePodsNotified &&
 						(cond.Status == metav1.ConditionUnknown || cond.Status == metav1.ConditionFalse) {
 						hasIncompleteNotification = true
 						break
@@ -249,7 +251,7 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			}
 
 			inProgressCondition := metav1.Condition{
-				Type:               "PodsNotified",
+				Type:               condTypePodsNotified,
 				Status:             metav1.ConditionUnknown,
 				Reason:             "NotificationInProgress",
 				Message:            fmt.Sprintf("Notifying pods for %s", updateIdentifier),
@@ -326,7 +328,7 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 		if podsNotified {
 			podsNotifiedCondition = metav1.Condition{
-				Type:               "PodsNotified",
+				Type:               condTypePodsNotified,
 				Status:             metav1.ConditionTrue,
 				Reason:             "NotificationSucceeded",
 				Message:            fmt.Sprintf("Successfully notified all pods for %s", updateIdentifier),
@@ -334,7 +336,7 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			}
 		} else {
 			podsNotifiedCondition = metav1.Condition{
-				Type:               "PodsNotified",
+				Type:               condTypePodsNotified,
 				Status:             metav1.ConditionFalse,
 				Reason:             "NotificationFailed",
 				Message:            fmt.Sprintf("Failed to notify pods for %s: %s", updateIdentifier, notificationError),
