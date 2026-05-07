@@ -188,7 +188,7 @@ func addEnvVarsToDeployment(templatesDir string) error {
 	contentStr := string(content)
 
 	// Find the image line and add env vars after it
-	envBlock := `        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret .Values.cfworkers.builderImage .Values.s3.existingSecret .Values.s3.region .Values.s3.logsBucket .Values.s3.cacheBucket }}
+	envBlock := `        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret .Values.cfworkers.builderImage .Values.s3.existingSecret .Values.s3.region .Values.s3.logsBucket .Values.s3.artifactsBucket }}
         env:
         {{- if and .Values.github .Values.github.existingSecret }}
         - name: GITHUB_TOKEN
@@ -257,9 +257,9 @@ func addEnvVarsToDeployment(templatesDir string) error {
         - name: S3_LOGS_BUCKET
           value: {{ .logsBucket | quote }}
         {{- end }}
-        {{- if .cacheBucket }}
-        - name: S3_CACHE_BUCKET
-          value: {{ .cacheBucket | quote }}
+        {{- if .artifactsBucket }}
+        - name: S3_ARTIFACTS_BUCKET
+          value: {{ .artifactsBucket | quote }}
         {{- end }}
         {{- end }}
         {{- end }}`

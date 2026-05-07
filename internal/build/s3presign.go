@@ -19,7 +19,7 @@ type S3Config struct {
 	AccessKeyID     string
 	SecretAccessKey string
 	LogsBucket      string // bucket for build logs
-	CacheBucket     string // bucket for npm cache
+	ArtifactsBucket string // bucket for build artifacts
 }
 
 // GeneratepresignedURLs generates all presigned URLs the build job needs.
@@ -48,7 +48,7 @@ func generatePresignedURLs(ctx context.Context, cfg S3Config, site, jobName stri
 	cacheKey := fmt.Sprintf("%s/npm-cache.tar.zst", site)
 
 	cacheDownload, err := presigner.PresignGetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(cfg.CacheBucket),
+		Bucket: aws.String(cfg.ArtifactsBucket),
 		Key:    aws.String(cacheKey),
 	}, s3.WithPresignExpires(presignExpiry))
 	if err != nil {
@@ -56,7 +56,7 @@ func generatePresignedURLs(ctx context.Context, cfg S3Config, site, jobName stri
 	}
 
 	cacheUpload, err := presigner.PresignPutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(cfg.CacheBucket),
+		Bucket: aws.String(cfg.ArtifactsBucket),
 		Key:    aws.String(cacheKey),
 	}, s3.WithPresignExpires(presignExpiry))
 	if err != nil {

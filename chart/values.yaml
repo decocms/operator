@@ -105,7 +105,7 @@ s3:
   existingSecret: ""    # Secret with s3-access-key-id, s3-secret-access-key
   region: ""            # AWS region (e.g. us-east-1)
   logsBucket: ""        # S3 bucket for build logs
-  cacheBucket: ""       # S3 bucket for npm cache
+  artifactsBucket: ""       # S3 bucket for build artifacts
 
 # Name overrides
 nameOverride: ""
