@@ -21,9 +21,14 @@ func JobName(commitSha, site string) string {
 	return fmt.Sprintf("build-%x", h[:4])
 }
 
-// presignedURLs are the S3 presigned URLs the build job needs.
-type presignedURLs struct {
-	LogsUpload string
+// S3Config holds the AWS credentials and bucket names for the build job.
+type S3Config struct {
+	Region          string
+	AccessKeyID     string
+	SecretAccessKey string
+	LogsBucket      string
+	ArtifactsBucket string
+	StateBucket     string
 }
 
 // cfWorkersJobOpts are the inputs for NewJob.
@@ -33,7 +38,6 @@ type cfWorkersJobOpts struct {
 	GithubToken   string
 	CfApiToken    string
 	CfAccountId   string
-	presignedURLs presignedURLs
 	S3            S3Config
 	// SourceOverride replaces spec.build.source when set (used for preview builds).
 	SourceOverride *decositesv1alpha1.DecoSpecBuildSource
@@ -75,7 +79,7 @@ func newCfWorkersJob(opts cfWorkersJobOpts) *batchv1.Job {
 		{Name: "IS_PRODUCTION", Value: isProduction},
 		{Name: "CF_ACCOUNT_ID", Value: opts.CfAccountId},
 		{Name: "CLOUDFLARE_API_TOKEN", Value: opts.CfApiToken},
-		{Name: "LOGS_UPLOAD_URL", Value: opts.presignedURLs.LogsUpload},
+		{Name: "S3_LOGS_BUCKET", Value: opts.S3.LogsBucket},
 		{Name: "S3_ARTIFACTS_BUCKET", Value: opts.S3.ArtifactsBucket},
 		{Name: "S3_STATE_BUCKET", Value: opts.S3.StateBucket},
 		{Name: "S3_REGION", Value: opts.S3.Region},
@@ -185,27 +189,21 @@ func CfWorkersConfigFromEnv() CfWorkersConfig {
 }
 
 type cfWorkersBuilder struct {
-	cfg       CfWorkersConfig
-	presignFn func(ctx context.Context, cfg S3Config, site, jobName string) (presignedURLs, error)
+	cfg CfWorkersConfig
 }
 
 // NewCloudflareFactory returns a Builder for spec.serving.type = "cloudflare-worker".
 func NewCloudflareFactory(cfg CfWorkersConfig) Builder {
-	return &cfWorkersBuilder{cfg: cfg, presignFn: generatePresignedURLs}
+	return &cfWorkersBuilder{cfg: cfg}
 }
 
-func (b *cfWorkersBuilder) NewJob(ctx context.Context, deco *decositesv1alpha1.Deco, jobName string, source decositesv1alpha1.DecoSpecBuildSource) (*batchv1.Job, error) {
-	urls, err := b.presignFn(ctx, b.cfg.S3, deco.Spec.Site, jobName)
-	if err != nil {
-		return nil, fmt.Errorf("generating presigned URLs: %w", err)
-	}
+func (b *cfWorkersBuilder) NewJob(_ context.Context, deco *decositesv1alpha1.Deco, jobName string, source decositesv1alpha1.DecoSpecBuildSource) (*batchv1.Job, error) {
 	return newCfWorkersJob(cfWorkersJobOpts{
 		Deco:           deco,
 		JobName:        jobName,
 		GithubToken:    b.cfg.GithubToken,
 		CfApiToken:     b.cfg.CfApiToken,
 		CfAccountId:    b.cfg.CfAccountId,
-		presignedURLs:  urls,
 		S3:             b.cfg.S3,
 		SourceOverride: &source,
 		BuilderImage:   b.cfg.BuilderImage,
