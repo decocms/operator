@@ -50,6 +50,9 @@ rules:
   verbs:
   - create
   - get
+  - list
+  - update
+  - watch
 - apiGroups:
   - batch
   resources:
