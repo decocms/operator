@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -214,18 +213,15 @@ func CfWorkersConfigFromEnv() CfWorkersConfig {
 	}
 }
 
-// parseNodeSelector parses a comma-separated "key=value" string into a map.
-// Empty or malformed pairs are silently skipped.
+// parseNodeSelector parses a JSON object string into a map.
+// Returns nil on empty input or parse error.
 func parseNodeSelector(s string) map[string]string {
 	if s == "" {
 		return nil
 	}
 	m := map[string]string{}
-	for _, pair := range strings.Split(s, ",") {
-		k, v, ok := strings.Cut(pair, "=")
-		if ok && k != "" {
-			m[k] = v
-		}
+	if err := json.Unmarshal([]byte(s), &m); err != nil {
+		return nil
 	}
 	if len(m) == 0 {
 		return nil

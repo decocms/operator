@@ -108,7 +108,7 @@ spec:
         {{- end }}
         {{- if .nodeSelector }}
         - name: BUILD_NODE_SELECTOR
-          value: {{ $parts := list }}{{ range $k, $v := .nodeSelector }}{{ $parts = append $parts (printf "%s=%s" $k $v) }}{{ end }}{{ join "," $parts | quote }}
+          value: {{ .nodeSelector | toJson | quote }}
         {{- end }}
         {{- if .tolerations }}
         - name: BUILD_TOLERATIONS
