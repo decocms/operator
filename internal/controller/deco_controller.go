@@ -39,7 +39,7 @@ type DecoReconciler struct {
 // +kubebuilder:rbac:groups=deco.sites,resources=decos/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=deco.sites,resources=decos/finalizers,verbs=update
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;delete
-// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;create
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update
 
 func (r *DecoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
@@ -252,7 +252,7 @@ func (r *DecoReconciler) createJob(ctx context.Context, deco *decositesv1alpha1.
 	}
 
 	if sa := job.Spec.Template.Spec.ServiceAccountName; sa != "" {
-		if err := r.ensureServiceAccount(ctx, deco.Namespace, sa, r.BuilderSAAnnotations); err != nil {
+		if err := ensureServiceAccount(ctx, r.Client, deco.Namespace, sa, r.BuilderSAAnnotations); err != nil {
 			return fmt.Errorf("ensuring service account %q: %w", sa, err)
 		}
 	}
@@ -267,24 +267,6 @@ func (r *DecoReconciler) createJob(ctx context.Context, deco *decositesv1alpha1.
 	return nil
 }
 
-// ensureServiceAccount creates or updates the ServiceAccount merging the provided annotations.
-func (r *DecoReconciler) ensureServiceAccount(ctx context.Context, namespace, name string, annotations map[string]string) error {
-	sa := &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
-	}
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, sa, func() error {
-		if len(annotations) > 0 {
-			if sa.Annotations == nil {
-				sa.Annotations = map[string]string{}
-			}
-			for k, v := range annotations {
-				sa.Annotations[k] = v
-			}
-		}
-		return nil
-	})
-	return err
-}
 
 func buildPhaseFromJob(job *batchv1.Job) string {
 	for _, c := range job.Status.Conditions {
