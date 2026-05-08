@@ -333,9 +333,10 @@ func main() {
 	registry.Register("cloudflare-worker", build.NewCloudflareFactory(build.CfWorkersConfigFromEnv()))
 
 	if err := (&controller.DecoReconciler{
-		Client:  mgr.GetClient(),
-		Scheme:  mgr.GetScheme(),
-		Builder: registry,
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		Builder:        registry,
+		BuilderRoleArn: os.Getenv("BUILD_ROLE_ARN"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Deco")
 		os.Exit(1)

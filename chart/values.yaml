@@ -109,7 +109,8 @@ s3:
 
 # Build job config — shared across all build platforms
 build:
-  serviceAccount: ""    # K8s ServiceAccount for builder pods (Pod Identity)
+  serviceAccount: ""    # K8s ServiceAccount for builder pods (IRSA)
+  roleArn: ""           # IAM role ARN for IRSA annotation on the ServiceAccount
 
 # Name overrides
 nameOverride: ""
