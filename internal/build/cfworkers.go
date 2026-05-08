@@ -4,6 +4,7 @@ package build
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -21,27 +22,35 @@ func JobName(commitSha, site string) string {
 	return fmt.Sprintf("build-%x", h[:4])
 }
 
-// presignedURLs are the S3 presigned URLs the build job needs.
-type presignedURLs struct {
-	LogsUpload    string
-	CacheDownload string
-	CacheUpload   string
+// S3Config holds the bucket names and region for the build job.
+// Credentials are provided via Pod Identity (no static keys needed).
+type S3Config struct {
+	Region          string
+	LogsBucket      string
+	ArtifactsBucket string
+	StateBucket     string
 }
 
 // cfWorkersJobOpts are the inputs for NewJob.
 type cfWorkersJobOpts struct {
-	Deco          *decositesv1alpha1.Deco
-	JobName       string
-	GithubToken   string
-	CfApiToken    string
-	CfAccountId   string
-	presignedURLs presignedURLs
+	Deco        *decositesv1alpha1.Deco
+	JobName     string
+	GithubToken string
+	CfApiToken  string
+	CfAccountId string
+	S3          S3Config
 	// SourceOverride replaces spec.build.source when set (used for preview builds).
 	SourceOverride *decositesv1alpha1.DecoSpecBuildSource
 	// BuilderImage is the platform default. spec.build.builder in the CR takes precedence when set.
 	BuilderImage string
+	// BuilderServiceAccount is the K8s ServiceAccount the job pod runs as (for Pod Identity).
+	BuilderServiceAccount string
 	// TTLSeconds controls how long the Job is kept after completion.
 	TTLSeconds int32
+	// NodeSelector constrains build pods to nodes matching these labels.
+	NodeSelector map[string]string
+	// Tolerations applied to build pods.
+	Tolerations []corev1.Toleration
 }
 
 // newCfWorkersJob builds the batchv1.Job spec for a cfworkers build.
@@ -76,9 +85,10 @@ func newCfWorkersJob(opts cfWorkersJobOpts) *batchv1.Job {
 		{Name: "IS_PRODUCTION", Value: isProduction},
 		{Name: "CF_ACCOUNT_ID", Value: opts.CfAccountId},
 		{Name: "CLOUDFLARE_API_TOKEN", Value: opts.CfApiToken},
-		{Name: "LOGS_UPLOAD_URL", Value: opts.presignedURLs.LogsUpload},
-		{Name: "CACHE_DOWNLOAD_URL", Value: opts.presignedURLs.CacheDownload},
-		{Name: "CACHE_UPLOAD_URL", Value: opts.presignedURLs.CacheUpload},
+		{Name: "S3_LOGS_BUCKET", Value: opts.S3.LogsBucket},
+		{Name: "S3_ARTIFACTS_BUCKET", Value: opts.S3.ArtifactsBucket},
+		{Name: "S3_STATE_BUCKET", Value: opts.S3.StateBucket},
+		{Name: "S3_REGION", Value: opts.S3.Region},
 	}
 	if src.BranchRef != "" {
 		env = append(env, corev1.EnvVar{Name: "BRANCH_REF", Value: src.BranchRef})
@@ -112,6 +122,16 @@ func newCfWorkersJob(opts cfWorkersJobOpts) *batchv1.Job {
 		ttl = *spec.Build.TTLSecondsAfterFinished
 	}
 
+	nodeSelector := opts.NodeSelector
+	if spec.Build != nil && len(spec.Build.NodeSelector) > 0 {
+		nodeSelector = spec.Build.NodeSelector
+	}
+
+	tolerations := opts.Tolerations
+	if spec.Build != nil && len(spec.Build.Tolerations) > 0 {
+		tolerations = spec.Build.Tolerations
+	}
+
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      opts.JobName,
@@ -127,7 +147,10 @@ func newCfWorkersJob(opts cfWorkersJobOpts) *batchv1.Job {
 			TTLSecondsAfterFinished: &ttl,
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
-					RestartPolicy: corev1.RestartPolicyNever,
+					RestartPolicy:      corev1.RestartPolicyNever,
+					ServiceAccountName: opts.BuilderServiceAccount,
+					NodeSelector:       nodeSelector,
+					Tolerations:        tolerations,
 					Containers: []corev1.Container{
 						{
 							Name:    "builder",
@@ -155,56 +178,92 @@ func newCfWorkersJob(opts cfWorkersJobOpts) *batchv1.Job {
 
 // CfWorkersConfig holds all configuration the Cloudflare Workers builder needs.
 type CfWorkersConfig struct {
-	CfApiToken   string
-	CfAccountId  string
-	GithubToken  string
-	BuilderImage string
-	TTLSeconds   int32
-	S3           S3Config
+	CfApiToken            string
+	CfAccountId           string
+	GithubToken           string
+	BuilderImage          string
+	BuilderServiceAccount string
+	TTLSeconds            int32
+	S3                    S3Config
+	// NodeSelector is the default nodeSelector applied to all build pods.
+	// spec.build.nodeSelector in the CR overrides this per-site.
+	NodeSelector map[string]string
+	// Tolerations is the default list of tolerations applied to all build pods.
+	// spec.build.tolerations in the CR overrides this per-site.
+	Tolerations []corev1.Toleration
 }
 
 // CfWorkersConfigFromEnv reads CfWorkersConfig from standard environment variables.
 func CfWorkersConfigFromEnv() CfWorkersConfig {
 	return CfWorkersConfig{
-		CfApiToken:   os.Getenv("CLOUDFLARE_API_WORKERS_TOKEN"),
-		CfAccountId:  os.Getenv("CLOUDFLARE_ACCOUNT_ID"),
-		GithubToken:  os.Getenv("GITHUB_TOKEN"),
-		BuilderImage: os.Getenv("CFWORKERS_BUILDER_IMAGE"),
-		TTLSeconds:   10 * 60,
+		CfApiToken:            os.Getenv("CLOUDFLARE_API_WORKERS_TOKEN"),
+		CfAccountId:           os.Getenv("CLOUDFLARE_ACCOUNT_ID"),
+		GithubToken:           os.Getenv("GITHUB_TOKEN"),
+		BuilderImage:          os.Getenv("CFWORKERS_BUILDER_IMAGE"),
+		BuilderServiceAccount: os.Getenv("BUILD_SERVICE_ACCOUNT"),
+		TTLSeconds:            10 * 60,
+		NodeSelector:          parseNodeSelector(os.Getenv("BUILD_NODE_SELECTOR")),
+		Tolerations:           parseTolerations(os.Getenv("BUILD_TOLERATIONS")),
 		S3: S3Config{
 			Region:          os.Getenv("S3_REGION"),
-			AccessKeyID:     os.Getenv("S3_ACCESS_KEY_ID"),
-			SecretAccessKey: os.Getenv("S3_SECRET_ACCESS_KEY"),
 			LogsBucket:      os.Getenv("S3_LOGS_BUCKET"),
 			ArtifactsBucket: os.Getenv("S3_ARTIFACTS_BUCKET"),
+			StateBucket:     os.Getenv("S3_STATE_BUCKET"),
 		},
 	}
 }
 
+// parseNodeSelector parses a JSON object string into a map.
+// Returns nil on empty input or parse error.
+func parseNodeSelector(s string) map[string]string {
+	if s == "" {
+		return nil
+	}
+	m := map[string]string{}
+	if err := json.Unmarshal([]byte(s), &m); err != nil {
+		return nil
+	}
+	if len(m) == 0 {
+		return nil
+	}
+	return m
+}
+
+// parseTolerations unmarshals a JSON array of Toleration objects.
+// Returns nil on empty input or parse error.
+func parseTolerations(s string) []corev1.Toleration {
+	if s == "" {
+		return nil
+	}
+	var t []corev1.Toleration
+	if err := json.Unmarshal([]byte(s), &t); err != nil {
+		return nil
+	}
+	return t
+}
+
 type cfWorkersBuilder struct {
-	cfg       CfWorkersConfig
-	presignFn func(ctx context.Context, cfg S3Config, site, jobName string) (presignedURLs, error)
+	cfg CfWorkersConfig
 }
 
 // NewCloudflareFactory returns a Builder for spec.serving.type = "cloudflare-worker".
 func NewCloudflareFactory(cfg CfWorkersConfig) Builder {
-	return &cfWorkersBuilder{cfg: cfg, presignFn: generatePresignedURLs}
+	return &cfWorkersBuilder{cfg: cfg}
 }
 
-func (b *cfWorkersBuilder) NewJob(ctx context.Context, deco *decositesv1alpha1.Deco, jobName string, source decositesv1alpha1.DecoSpecBuildSource) (*batchv1.Job, error) {
-	urls, err := b.presignFn(ctx, b.cfg.S3, deco.Spec.Site, jobName)
-	if err != nil {
-		return nil, fmt.Errorf("generating presigned URLs: %w", err)
-	}
+func (b *cfWorkersBuilder) NewJob(_ context.Context, deco *decositesv1alpha1.Deco, jobName string, source decositesv1alpha1.DecoSpecBuildSource) (*batchv1.Job, error) {
 	return newCfWorkersJob(cfWorkersJobOpts{
-		Deco:           deco,
-		JobName:        jobName,
-		GithubToken:    b.cfg.GithubToken,
-		CfApiToken:     b.cfg.CfApiToken,
-		CfAccountId:    b.cfg.CfAccountId,
-		presignedURLs:  urls,
-		SourceOverride: &source,
-		BuilderImage:   b.cfg.BuilderImage,
-		TTLSeconds:     b.cfg.TTLSeconds,
+		Deco:                  deco,
+		JobName:               jobName,
+		GithubToken:           b.cfg.GithubToken,
+		CfApiToken:            b.cfg.CfApiToken,
+		CfAccountId:           b.cfg.CfAccountId,
+		S3:                    b.cfg.S3,
+		SourceOverride:        &source,
+		BuilderImage:          b.cfg.BuilderImage,
+		BuilderServiceAccount: b.cfg.BuilderServiceAccount,
+		TTLSeconds:            b.cfg.TTLSeconds,
+		NodeSelector:          b.cfg.NodeSelector,
+		Tolerations:           b.cfg.Tolerations,
 	}), nil
 }

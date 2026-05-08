@@ -30,14 +30,16 @@ const (
 // DecoReconciler reconciles Deco objects.
 type DecoReconciler struct {
 	client.Client
-	Scheme  *runtime.Scheme
-	Builder build.Builder
+	Scheme               *runtime.Scheme
+	Builder              build.Builder
+	BuilderSAAnnotations map[string]string
 }
 
 // +kubebuilder:rbac:groups=deco.sites,resources=decos,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=deco.sites,resources=decos/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=deco.sites,resources=decos/finalizers,verbs=update
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;create
 
 func (r *DecoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
@@ -249,6 +251,12 @@ func (r *DecoReconciler) createJob(ctx context.Context, deco *decositesv1alpha1.
 		return fmt.Errorf("building job spec: %w", err)
 	}
 
+	if sa := job.Spec.Template.Spec.ServiceAccountName; sa != "" {
+		if err := r.ensureServiceAccount(ctx, deco.Namespace, sa, r.BuilderSAAnnotations); err != nil {
+			return fmt.Errorf("ensuring service account %q: %w", sa, err)
+		}
+	}
+
 	if err := controllerutil.SetControllerReference(deco, job, r.Scheme); err != nil {
 		return fmt.Errorf("setting owner reference: %w", err)
 	}
@@ -257,6 +265,25 @@ func (r *DecoReconciler) createJob(ctx context.Context, deco *decositesv1alpha1.
 		return fmt.Errorf("creating build job: %w", err)
 	}
 	return nil
+}
+
+// ensureServiceAccount creates or updates the ServiceAccount merging the provided annotations.
+func (r *DecoReconciler) ensureServiceAccount(ctx context.Context, namespace, name string, annotations map[string]string) error {
+	sa := &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+	}
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, sa, func() error {
+		if len(annotations) > 0 {
+			if sa.Annotations == nil {
+				sa.Annotations = map[string]string{}
+			}
+			for k, v := range annotations {
+				sa.Annotations[k] = v
+			}
+		}
+		return nil
+	})
+	return err
 }
 
 func buildPhaseFromJob(job *batchv1.Job) string {

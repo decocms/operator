@@ -332,10 +332,15 @@ func main() {
 	registry := build.NewBuilderRegistry()
 	registry.Register("cloudflare-worker", build.NewCloudflareFactory(build.CfWorkersConfigFromEnv()))
 
+	builderSAAnnotations := map[string]string{}
+	if roleArn := os.Getenv("BUILD_ROLE_ARN"); roleArn != "" {
+		builderSAAnnotations["eks.amazonaws.com/role-arn"] = roleArn
+	}
 	if err := (&controller.DecoReconciler{
-		Client:  mgr.GetClient(),
-		Scheme:  mgr.GetScheme(),
-		Builder: registry,
+		Client:               mgr.GetClient(),
+		Scheme:               mgr.GetScheme(),
+		Builder:              registry,
+		BuilderSAAnnotations: builderSAAnnotations,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Deco")
 		os.Exit(1)

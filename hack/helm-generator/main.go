@@ -188,7 +188,7 @@ func addEnvVarsToDeployment(templatesDir string) error {
 	contentStr := string(content)
 
 	// Find the image line and add env vars after it
-	envBlock := `        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret .Values.cfworkers.builderImage .Values.cfworkers.artifactsBucket .Values.s3.existingSecret .Values.s3.region .Values.s3.logsBucket }}
+	envBlock := `        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret .Values.cfworkers.builderImage .Values.cfworkers.artifactsBucket .Values.s3.region .Values.s3.logsBucket .Values.s3.stateBucket .Values.build.serviceAccount .Values.build.roleArn .Values.build.nodeSelector .Values.build.tolerations }}
         env:
         {{- if and .Values.github .Values.github.existingSecret }}
         - name: GITHUB_TOKEN
@@ -241,18 +241,6 @@ func addEnvVarsToDeployment(templatesDir string) error {
         {{- end }}
         {{- end }}
         {{- with .Values.s3 }}
-        {{- if .existingSecret }}
-        - name: S3_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: {{ .existingSecret | quote }}
-              key: s3-access-key-id
-        - name: S3_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: {{ .existingSecret | quote }}
-              key: s3-secret-access-key
-        {{- end }}
         {{- if .region }}
         - name: S3_REGION
           value: {{ .region | quote }}
@@ -261,11 +249,33 @@ func addEnvVarsToDeployment(templatesDir string) error {
         - name: S3_LOGS_BUCKET
           value: {{ .logsBucket | quote }}
         {{- end }}
+        {{- if .stateBucket }}
+        - name: S3_STATE_BUCKET
+          value: {{ .stateBucket | quote }}
+        {{- end }}
+        {{- end }}
+        {{- with .Values.build }}
+        {{- if .serviceAccount }}
+        - name: BUILD_SERVICE_ACCOUNT
+          value: {{ .serviceAccount | quote }}
+        {{- end }}
+        {{- if .roleArn }}
+        - name: BUILD_ROLE_ARN
+          value: {{ .roleArn | quote }}
+        {{- end }}
+        {{- if .nodeSelector }}
+        - name: BUILD_NODE_SELECTOR
+          value: {{ .nodeSelector | toJson | quote }}
+        {{- end }}
+        {{- if .tolerations }}
+        - name: BUILD_TOLERATIONS
+          value: {{ .tolerations | toJson | quote }}
+        {{- end }}
         {{- end }}
         {{- end }}`
 
-	re := regexp.MustCompile(`(?m)(        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}")`)
-	contentStr = re.ReplaceAllString(contentStr, "$1\n"+envBlock)
+	imageLine := `        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"`
+	contentStr = strings.Replace(contentStr, imageLine, imageLine+"\n"+envBlock, 1)
 
 	return os.WriteFile(deploymentFile, []byte(contentStr), 0644)
 }
