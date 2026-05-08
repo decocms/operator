@@ -88,6 +88,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Warning: Could not add env vars to deployment: %v\n", err)
 	}
 
+	// Add builder ServiceAccount template (conditional on build.serviceAccount)
+	if err := addBuilderServiceAccount(templatesDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not add builder service account: %v\n", err)
+	}
+
 	fmt.Printf("✓ Generated %d Helm templates\n\n", fileCount)
 	fmt.Println("Test with:")
 	fmt.Println("  make helm-lint")
@@ -278,4 +283,20 @@ func addEnvVarsToDeployment(templatesDir string) error {
 	contentStr = strings.Replace(contentStr, imageLine, imageLine+"\n"+envBlock, 1)
 
 	return os.WriteFile(deploymentFile, []byte(contentStr), 0644)
+}
+
+func addBuilderServiceAccount(templatesDir string) error {
+	content := `{{- if .Values.build.serviceAccount }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.build.serviceAccount }}
+  namespace: {{ .Release.Namespace }}
+  {{- if .Values.build.roleArn }}
+  annotations:
+    eks.amazonaws.com/role-arn: {{ .Values.build.roleArn | quote }}
+  {{- end }}
+{{- end }}
+`
+	return os.WriteFile(filepath.Join(templatesDir, "serviceaccount-builder.yaml"), []byte(content), 0644)
 }
