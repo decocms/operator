@@ -111,6 +111,8 @@ s3:
 build:
   serviceAccount: ""    # K8s ServiceAccount for builder pods (IRSA)
   roleArn: ""           # IAM role ARN for IRSA annotation on the ServiceAccount
+  nodeSelector: {}      # Default nodeSelector for build pods (overridable per-site via spec.build.nodeSelector)
+  tolerations: []       # Default tolerations for build pods (overridable per-site via spec.build.tolerations)
 
 # Name overrides
 nameOverride: ""

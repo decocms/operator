@@ -1,6 +1,9 @@
 package v1alpha1
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 // DecoSpec defines the desired state of a Deco workload.
 type DecoSpec struct {
@@ -82,6 +85,15 @@ type DecoSpecBuild struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	TTLSecondsAfterFinished *int32 `json:"ttlSecondsAfterFinished,omitempty"`
+
+	// NodeSelector constrains the build Job pods to nodes matching all the specified labels.
+	// Use this to target a specific node pool (e.g. cloud.google.com/gke-nodepool: build-pool).
+	// +optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+
+	// Tolerations are applied to the build Job pods, allowing them to be scheduled on tainted nodes.
+	// +optional
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 }
 
 // DecoSpecBuildSource identifies the code revision to build.

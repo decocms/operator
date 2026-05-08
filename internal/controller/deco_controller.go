@@ -30,9 +30,9 @@ const (
 // DecoReconciler reconciles Deco objects.
 type DecoReconciler struct {
 	client.Client
-	Scheme         *runtime.Scheme
-	Builder        build.Builder
-	BuilderRoleArn string
+	Scheme               *runtime.Scheme
+	Builder              build.Builder
+	BuilderSAAnnotations map[string]string
 }
 
 // +kubebuilder:rbac:groups=deco.sites,resources=decos,verbs=get;list;watch;create;update;patch;delete
@@ -252,7 +252,7 @@ func (r *DecoReconciler) createJob(ctx context.Context, deco *decositesv1alpha1.
 	}
 
 	if sa := job.Spec.Template.Spec.ServiceAccountName; sa != "" {
-		if err := r.ensureServiceAccount(ctx, deco.Namespace, sa, r.BuilderRoleArn); err != nil {
+		if err := r.ensureServiceAccount(ctx, deco.Namespace, sa, r.BuilderSAAnnotations); err != nil {
 			return fmt.Errorf("ensuring service account %q: %w", sa, err)
 		}
 	}
@@ -267,17 +267,19 @@ func (r *DecoReconciler) createJob(ctx context.Context, deco *decositesv1alpha1.
 	return nil
 }
 
-// ensureServiceAccount creates or updates the ServiceAccount with the IRSA annotation if roleArn is set.
-func (r *DecoReconciler) ensureServiceAccount(ctx context.Context, namespace, name, roleArn string) error {
+// ensureServiceAccount creates or updates the ServiceAccount merging the provided annotations.
+func (r *DecoReconciler) ensureServiceAccount(ctx context.Context, namespace, name string, annotations map[string]string) error {
 	sa := &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 	}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, sa, func() error {
-		if roleArn != "" {
+		if len(annotations) > 0 {
 			if sa.Annotations == nil {
 				sa.Annotations = map[string]string{}
 			}
-			sa.Annotations["eks.amazonaws.com/role-arn"] = roleArn
+			for k, v := range annotations {
+				sa.Annotations[k] = v
+			}
 		}
 		return nil
 	})

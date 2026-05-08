@@ -4,8 +4,10 @@ package build
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -46,6 +48,10 @@ type cfWorkersJobOpts struct {
 	BuilderServiceAccount string
 	// TTLSeconds controls how long the Job is kept after completion.
 	TTLSeconds int32
+	// NodeSelector constrains build pods to nodes matching these labels.
+	NodeSelector map[string]string
+	// Tolerations applied to build pods.
+	Tolerations []corev1.Toleration
 }
 
 // newCfWorkersJob builds the batchv1.Job spec for a cfworkers build.
@@ -117,6 +123,16 @@ func newCfWorkersJob(opts cfWorkersJobOpts) *batchv1.Job {
 		ttl = *spec.Build.TTLSecondsAfterFinished
 	}
 
+	nodeSelector := opts.NodeSelector
+	if spec.Build != nil && len(spec.Build.NodeSelector) > 0 {
+		nodeSelector = spec.Build.NodeSelector
+	}
+
+	tolerations := opts.Tolerations
+	if spec.Build != nil && len(spec.Build.Tolerations) > 0 {
+		tolerations = spec.Build.Tolerations
+	}
+
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      opts.JobName,
@@ -134,6 +150,8 @@ func newCfWorkersJob(opts cfWorkersJobOpts) *batchv1.Job {
 				Spec: corev1.PodSpec{
 					RestartPolicy:      corev1.RestartPolicyNever,
 					ServiceAccountName: opts.BuilderServiceAccount,
+					NodeSelector:       nodeSelector,
+					Tolerations:        tolerations,
 					Containers: []corev1.Container{
 						{
 							Name:    "builder",
@@ -168,6 +186,12 @@ type CfWorkersConfig struct {
 	BuilderServiceAccount string
 	TTLSeconds            int32
 	S3                    S3Config
+	// NodeSelector is the default nodeSelector applied to all build pods.
+	// spec.build.nodeSelector in the CR overrides this per-site.
+	NodeSelector map[string]string
+	// Tolerations is the default list of tolerations applied to all build pods.
+	// spec.build.tolerations in the CR overrides this per-site.
+	Tolerations []corev1.Toleration
 }
 
 // CfWorkersConfigFromEnv reads CfWorkersConfig from standard environment variables.
@@ -179,6 +203,8 @@ func CfWorkersConfigFromEnv() CfWorkersConfig {
 		BuilderImage:          os.Getenv("CFWORKERS_BUILDER_IMAGE"),
 		BuilderServiceAccount: os.Getenv("BUILD_SERVICE_ACCOUNT"),
 		TTLSeconds:            10 * 60,
+		NodeSelector:          parseNodeSelector(os.Getenv("BUILD_NODE_SELECTOR")),
+		Tolerations:           parseTolerations(os.Getenv("BUILD_TOLERATIONS")),
 		S3: S3Config{
 			Region:          os.Getenv("S3_REGION"),
 			LogsBucket:      os.Getenv("S3_LOGS_BUCKET"),
@@ -186,6 +212,38 @@ func CfWorkersConfigFromEnv() CfWorkersConfig {
 			StateBucket:     os.Getenv("S3_STATE_BUCKET"),
 		},
 	}
+}
+
+// parseNodeSelector parses a comma-separated "key=value" string into a map.
+// Empty or malformed pairs are silently skipped.
+func parseNodeSelector(s string) map[string]string {
+	if s == "" {
+		return nil
+	}
+	m := map[string]string{}
+	for _, pair := range strings.Split(s, ",") {
+		k, v, ok := strings.Cut(pair, "=")
+		if ok && k != "" {
+			m[k] = v
+		}
+	}
+	if len(m) == 0 {
+		return nil
+	}
+	return m
+}
+
+// parseTolerations unmarshals a JSON array of Toleration objects.
+// Returns nil on empty input or parse error.
+func parseTolerations(s string) []corev1.Toleration {
+	if s == "" {
+		return nil
+	}
+	var t []corev1.Toleration
+	if err := json.Unmarshal([]byte(s), &t); err != nil {
+		return nil
+	}
+	return t
 }
 
 type cfWorkersBuilder struct {
@@ -209,5 +267,7 @@ func (b *cfWorkersBuilder) NewJob(_ context.Context, deco *decositesv1alpha1.Dec
 		BuilderImage:          b.cfg.BuilderImage,
 		BuilderServiceAccount: b.cfg.BuilderServiceAccount,
 		TTLSeconds:            b.cfg.TTLSeconds,
+		NodeSelector:          b.cfg.NodeSelector,
+		Tolerations:           b.cfg.Tolerations,
 	}), nil
 }

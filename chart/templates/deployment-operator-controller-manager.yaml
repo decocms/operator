@@ -31,7 +31,7 @@ spec:
         command:
         - /manager
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret .Values.cfworkers.builderImage .Values.cfworkers.artifactsBucket .Values.s3.region .Values.s3.logsBucket .Values.s3.stateBucket .Values.build.serviceAccount .Values.build.roleArn }}
+        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret .Values.cfworkers.builderImage .Values.cfworkers.artifactsBucket .Values.s3.region .Values.s3.logsBucket .Values.s3.stateBucket .Values.build.serviceAccount .Values.build.roleArn .Values.build.nodeSelector .Values.build.tolerations }}
         env:
         {{- if and .Values.github .Values.github.existingSecret }}
         - name: GITHUB_TOKEN
@@ -105,6 +105,14 @@ spec:
         {{- if .roleArn }}
         - name: BUILD_ROLE_ARN
           value: {{ .roleArn | quote }}
+        {{- end }}
+        {{- if .nodeSelector }}
+        - name: BUILD_NODE_SELECTOR
+          value: {{ $parts := list }}{{ range $k, $v := .nodeSelector }}{{ $parts = append $parts (printf "%s=%s" $k $v) }}{{ end }}{{ join "," $parts | quote }}
+        {{- end }}
+        {{- if .tolerations }}
+        - name: BUILD_TOLERATIONS
+          value: {{ .tolerations | toJson | quote }}
         {{- end }}
         {{- end }}
         {{- end }}
