@@ -101,12 +101,15 @@ cfworkers:
   builderImage: ""      # Builder container image (repository:tag)
   artifactsBucket: ""   # S3 bucket for build artifacts (cfworkers-specific)
 
-# S3 credentials and config — shared across all build platforms
+# S3 config — shared across all build platforms (credentials via Pod Identity)
 s3:
-  existingSecret: ""    # Secret with s3-access-key-id, s3-secret-access-key
   region: ""            # AWS region (e.g. us-east-1)
   logsBucket: ""        # S3 bucket for build logs
-  stateBucket: ""       # S3 bucket for site state 
+  stateBucket: ""       # S3 bucket for site state
+
+# Build job config — shared across all build platforms
+build:
+  serviceAccount: ""    # K8s ServiceAccount for builder pods (Pod Identity)
 
 # Name overrides
 nameOverride: ""

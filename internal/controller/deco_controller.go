@@ -38,6 +38,7 @@ type DecoReconciler struct {
 // +kubebuilder:rbac:groups=deco.sites,resources=decos/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=deco.sites,resources=decos/finalizers,verbs=update
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;create
 
 func (r *DecoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
@@ -249,6 +250,12 @@ func (r *DecoReconciler) createJob(ctx context.Context, deco *decositesv1alpha1.
 		return fmt.Errorf("building job spec: %w", err)
 	}
 
+	if sa := job.Spec.Template.Spec.ServiceAccountName; sa != "" {
+		if err := r.ensureServiceAccount(ctx, deco.Namespace, sa); err != nil {
+			return fmt.Errorf("ensuring service account %q: %w", sa, err)
+		}
+	}
+
 	if err := controllerutil.SetControllerReference(deco, job, r.Scheme); err != nil {
 		return fmt.Errorf("setting owner reference: %w", err)
 	}
@@ -257,6 +264,18 @@ func (r *DecoReconciler) createJob(ctx context.Context, deco *decositesv1alpha1.
 		return fmt.Errorf("creating build job: %w", err)
 	}
 	return nil
+}
+
+// ensureServiceAccount creates the ServiceAccount in the given namespace if it doesn't exist.
+func (r *DecoReconciler) ensureServiceAccount(ctx context.Context, namespace, name string) error {
+	sa := &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+	}
+	err := r.Create(ctx, sa)
+	if errors.IsAlreadyExists(err) {
+		return nil
+	}
+	return err
 }
 
 func buildPhaseFromJob(job *batchv1.Job) string {

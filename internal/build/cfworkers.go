@@ -21,11 +21,10 @@ func JobName(commitSha, site string) string {
 	return fmt.Sprintf("build-%x", h[:4])
 }
 
-// S3Config holds the AWS credentials and bucket names for the build job.
+// S3Config holds the bucket names and region for the build job.
+// Credentials are provided via Pod Identity (no static keys needed).
 type S3Config struct {
 	Region          string
-	AccessKeyID     string
-	SecretAccessKey string
 	LogsBucket      string
 	ArtifactsBucket string
 	StateBucket     string
@@ -43,6 +42,8 @@ type cfWorkersJobOpts struct {
 	SourceOverride *decositesv1alpha1.DecoSpecBuildSource
 	// BuilderImage is the platform default. spec.build.builder in the CR takes precedence when set.
 	BuilderImage string
+	// BuilderServiceAccount is the K8s ServiceAccount the job pod runs as (for Pod Identity).
+	BuilderServiceAccount string
 	// TTLSeconds controls how long the Job is kept after completion.
 	TTLSeconds int32
 }
@@ -83,8 +84,6 @@ func newCfWorkersJob(opts cfWorkersJobOpts) *batchv1.Job {
 		{Name: "S3_ARTIFACTS_BUCKET", Value: opts.S3.ArtifactsBucket},
 		{Name: "S3_STATE_BUCKET", Value: opts.S3.StateBucket},
 		{Name: "S3_REGION", Value: opts.S3.Region},
-		{Name: "S3_ACCESS_KEY_ID", Value: opts.S3.AccessKeyID},
-		{Name: "S3_SECRET_ACCESS_KEY", Value: opts.S3.SecretAccessKey},
 	}
 	if src.BranchRef != "" {
 		env = append(env, corev1.EnvVar{Name: "BRANCH_REF", Value: src.BranchRef})
@@ -133,7 +132,8 @@ func newCfWorkersJob(opts cfWorkersJobOpts) *batchv1.Job {
 			TTLSecondsAfterFinished: &ttl,
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
-					RestartPolicy: corev1.RestartPolicyNever,
+					RestartPolicy:      corev1.RestartPolicyNever,
+					ServiceAccountName: opts.BuilderServiceAccount,
 					Containers: []corev1.Container{
 						{
 							Name:    "builder",
@@ -161,26 +161,26 @@ func newCfWorkersJob(opts cfWorkersJobOpts) *batchv1.Job {
 
 // CfWorkersConfig holds all configuration the Cloudflare Workers builder needs.
 type CfWorkersConfig struct {
-	CfApiToken   string
-	CfAccountId  string
-	GithubToken  string
-	BuilderImage string
-	TTLSeconds   int32
-	S3           S3Config
+	CfApiToken            string
+	CfAccountId           string
+	GithubToken           string
+	BuilderImage          string
+	BuilderServiceAccount string
+	TTLSeconds            int32
+	S3                    S3Config
 }
 
 // CfWorkersConfigFromEnv reads CfWorkersConfig from standard environment variables.
 func CfWorkersConfigFromEnv() CfWorkersConfig {
 	return CfWorkersConfig{
-		CfApiToken:   os.Getenv("CLOUDFLARE_API_WORKERS_TOKEN"),
-		CfAccountId:  os.Getenv("CLOUDFLARE_ACCOUNT_ID"),
-		GithubToken:  os.Getenv("GITHUB_TOKEN"),
-		BuilderImage: os.Getenv("CFWORKERS_BUILDER_IMAGE"),
-		TTLSeconds:   10 * 60,
+		CfApiToken:            os.Getenv("CLOUDFLARE_API_WORKERS_TOKEN"),
+		CfAccountId:           os.Getenv("CLOUDFLARE_ACCOUNT_ID"),
+		GithubToken:           os.Getenv("GITHUB_TOKEN"),
+		BuilderImage:          os.Getenv("CFWORKERS_BUILDER_IMAGE"),
+		BuilderServiceAccount: os.Getenv("BUILD_SERVICE_ACCOUNT"),
+		TTLSeconds:            10 * 60,
 		S3: S3Config{
 			Region:          os.Getenv("S3_REGION"),
-			AccessKeyID:     os.Getenv("S3_ACCESS_KEY_ID"),
-			SecretAccessKey: os.Getenv("S3_SECRET_ACCESS_KEY"),
 			LogsBucket:      os.Getenv("S3_LOGS_BUCKET"),
 			ArtifactsBucket: os.Getenv("S3_ARTIFACTS_BUCKET"),
 			StateBucket:     os.Getenv("S3_STATE_BUCKET"),
@@ -199,14 +199,15 @@ func NewCloudflareFactory(cfg CfWorkersConfig) Builder {
 
 func (b *cfWorkersBuilder) NewJob(_ context.Context, deco *decositesv1alpha1.Deco, jobName string, source decositesv1alpha1.DecoSpecBuildSource) (*batchv1.Job, error) {
 	return newCfWorkersJob(cfWorkersJobOpts{
-		Deco:           deco,
-		JobName:        jobName,
-		GithubToken:    b.cfg.GithubToken,
-		CfApiToken:     b.cfg.CfApiToken,
-		CfAccountId:    b.cfg.CfAccountId,
-		S3:             b.cfg.S3,
-		SourceOverride: &source,
-		BuilderImage:   b.cfg.BuilderImage,
-		TTLSeconds:     b.cfg.TTLSeconds,
+		Deco:                  deco,
+		JobName:               jobName,
+		GithubToken:           b.cfg.GithubToken,
+		CfApiToken:            b.cfg.CfApiToken,
+		CfAccountId:           b.cfg.CfAccountId,
+		S3:                    b.cfg.S3,
+		SourceOverride:        &source,
+		BuilderImage:          b.cfg.BuilderImage,
+		BuilderServiceAccount: b.cfg.BuilderServiceAccount,
+		TTLSeconds:            b.cfg.TTLSeconds,
 	}), nil
 }
