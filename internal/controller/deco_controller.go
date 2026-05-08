@@ -267,7 +267,6 @@ func (r *DecoReconciler) createJob(ctx context.Context, deco *decositesv1alpha1.
 	return nil
 }
 
-
 func buildPhaseFromJob(job *batchv1.Job) string {
 	for _, c := range job.Status.Conditions {
 		if c.Status != corev1.ConditionTrue {
