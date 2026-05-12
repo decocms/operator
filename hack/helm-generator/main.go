@@ -93,6 +93,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Warning: Could not add builder service account: %v\n", err)
 	}
 
+	// Add podAnnotations to deployment pod template
+	if err := addPodAnnotations(templatesDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not add pod annotations to deployment: %v\n", err)
+	}
+
 	fmt.Printf("✓ Generated %d Helm templates\n\n", fileCount)
 	fmt.Println("Test with:")
 	fmt.Println("  make helm-lint")
@@ -281,6 +286,33 @@ func addEnvVarsToDeployment(templatesDir string) error {
 
 	imageLine := `        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"`
 	contentStr = strings.Replace(contentStr, imageLine, imageLine+"\n"+envBlock, 1)
+
+	return os.WriteFile(deploymentFile, []byte(contentStr), 0644)
+}
+
+func addPodAnnotations(templatesDir string) error {
+	files, err := filepath.Glob(filepath.Join(templatesDir, "deployment-*.yaml"))
+	if err != nil || len(files) == 0 {
+		return fmt.Errorf("no deployment file found")
+	}
+
+	deploymentFile := files[0]
+	content, err := os.ReadFile(deploymentFile)
+	if err != nil {
+		return err
+	}
+
+	contentStr := string(content)
+
+	annotationsBlock := `      annotations:
+        kubectl.kubernetes.io/default-container: manager
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}`
+
+	contentStr = strings.ReplaceAll(contentStr,
+		"      annotations:\n        kubectl.kubernetes.io/default-container: manager",
+		annotationsBlock)
 
 	return os.WriteFile(deploymentFile, []byte(contentStr), 0644)
 }
