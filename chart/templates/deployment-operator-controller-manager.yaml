@@ -17,16 +17,18 @@ spec:
     metadata:
       annotations:
         kubectl.kubernetes.io/default-container: manager
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       labels:
         app.kubernetes.io/name: operator
         control-plane: controller-manager
     spec:
       containers:
       - args:
-        - --metrics-bind-address=:8443
+        - --metrics-bind-address=:8080
         - --leader-elect
         - --health-probe-bind-address=:8081
-        - --metrics-cert-path=/tmp/k8s-metrics-server/metrics-certs
         - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
         command:
         - /manager
@@ -124,6 +126,9 @@ spec:
           periodSeconds: 20
         name: manager
         ports:
+        - containerPort: 8080
+          name: metrics
+          protocol: TCP
         - containerPort: 9443
           name: webhook-server
           protocol: TCP
@@ -146,9 +151,6 @@ spec:
             drop:
             - ALL
         volumeMounts:
-        - mountPath: /tmp/k8s-metrics-server/metrics-certs
-          name: metrics-certs
-          readOnly: true
         - mountPath: /tmp/k8s-webhook-server/serving-certs
           name: webhook-certs
           readOnly: true
@@ -159,17 +161,6 @@ spec:
       serviceAccountName: {{ .Release.Name }}-controller-manager
       terminationGracePeriodSeconds: 10
       volumes:
-      - name: metrics-certs
-        secret:
-          items:
-          - key: ca.crt
-            path: ca.crt
-          - key: tls.crt
-            path: tls.crt
-          - key: tls.key
-            path: tls.key
-          optional: false
-          secretName: metrics-server-cert
       - name: webhook-certs
         secret:
           secretName: webhook-server-cert

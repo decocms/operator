@@ -58,7 +58,7 @@ healthProbe:
 # Metrics configuration
 metrics:
   enabled: true
-  port: 8443
+  port: 8080
 
 # Leader election
 leaderElection:
