@@ -1200,10 +1200,10 @@ flag.StringVar(&redirectAPIPass, "redirect-api-password",
     os.Getenv("REDIRECT_API_PASSWORD"),
     "Basic auth password for the redirect API.")
 flag.StringVar(&redirectAPICertFile, "redirect-api-cert-file",
-    getEnvOrDefault("REDIRECT_API_CERT_FILE", "/tmp/redirect-api-certs/tls.crt"),
+    getEnvOrDefault("REDIRECT_API_CERT_FILE", "/tmp/operator-api-certs/tls.crt"),
     "TLS certificate file for the redirect API.")
 flag.StringVar(&redirectAPIKeyFile, "redirect-api-key-file",
-    getEnvOrDefault("REDIRECT_API_KEY_FILE", "/tmp/redirect-api-certs/tls.key"),
+    getEnvOrDefault("REDIRECT_API_KEY_FILE", "/tmp/operator-api-certs/tls.key"),
     "TLS key file for the redirect API.")
 
 // After manager is created:
@@ -1234,18 +1234,19 @@ redirectApi:
   username: ""
   password: ""
   existingSecret: ""   # Secret name with keys REDIRECT_API_USER and REDIRECT_API_PASSWORD
-  tlsSecretName: "redirect-api-tls-cert"  # populated by the Certificate CR below
+  # TLS cert is issued by the generic operator API Certificate (operator-api-tls-cert).
+  # certFile and keyFile default to the volume mount path set in the Deployment.
 ```
 
-- [ ] **Step 6: Create Service for the API (DNS name for TLS cert)**
+- [ ] **Step 6: Create generic operator API Service (DNS name for TLS cert)**
 
-Create `chart/templates/service-redirect-api.yaml`:
+Create `chart/templates/service-operator-api.yaml`:
 ```yaml
-{{- if .Values.redirectApi.enabled }}
+{{- if .Values.certManager.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Release.Name }}-redirect-api
+  name: {{ .Release.Name }}-api
   namespace: {{ .Release.Namespace }}
 spec:
   selector:
@@ -1259,24 +1260,24 @@ spec:
 {{- end }}
 ```
 
-- [ ] **Step 7: Create Certificate CR for the API TLS**
+- [ ] **Step 7: Create Certificate CR for operator API TLS**
 
-Create `chart/templates/certificate-redirect-api.yaml`:
+Create `chart/templates/certificate-operator-api.yaml`:
 ```yaml
-{{- if and .Values.redirectApi.enabled .Values.certManager.enabled }}
+{{- if .Values.certManager.enabled }}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: {{ .Release.Name }}-redirect-api-cert
+  name: {{ .Release.Name }}-api-cert
   namespace: {{ .Release.Namespace }}
 spec:
   dnsNames:
-  - {{ .Release.Name }}-redirect-api.{{ .Release.Namespace }}.svc
-  - {{ .Release.Name }}-redirect-api.{{ .Release.Namespace }}.svc.cluster.local
+  - {{ .Release.Name }}-api.{{ .Release.Namespace }}.svc
+  - {{ .Release.Name }}-api.{{ .Release.Namespace }}.svc.cluster.local
   issuerRef:
     kind: Issuer
     name: {{ .Release.Name }}-selfsigned-issuer
-  secretName: {{ .Values.redirectApi.tlsSecretName }}
+  secretName: operator-api-tls-cert
 {{- end }}
 ```
 
@@ -1309,19 +1310,19 @@ In `chart/templates/deployment-operator-controller-manager.yaml`, add to `env`:
 
 Add to `volumeMounts`:
 ```yaml
-{{- if .Values.redirectApi.enabled }}
-- mountPath: /tmp/redirect-api-certs
-  name: redirect-api-certs
+{{- if .Values.certManager.enabled }}
+- mountPath: /tmp/operator-api-certs
+  name: operator-api-certs
   readOnly: true
 {{- end }}
 ```
 
 Add to `volumes`:
 ```yaml
-{{- if .Values.redirectApi.enabled }}
-- name: redirect-api-certs
+{{- if .Values.certManager.enabled }}
+- name: operator-api-certs
   secret:
-    secretName: {{ .Values.redirectApi.tlsSecretName }}
+    secretName: operator-api-tls-cert
 {{- end }}
 ```
 
@@ -1337,8 +1338,8 @@ Expected: all 4 tests pass.
 
 ```bash
 git add internal/api/ cmd/main.go chart/values.yaml \
-        chart/templates/service-redirect-api.yaml \
-        chart/templates/certificate-redirect-api.yaml \
+        chart/templates/service-operator-api.yaml \
+        chart/templates/certificate-operator-api.yaml \
         chart/templates/deployment-operator-controller-manager.yaml
 git commit -m "feat: add HTTPS API for redirect management with basic auth and cert-manager TLS"
 ```
