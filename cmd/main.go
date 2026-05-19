@@ -124,7 +124,7 @@ func main() {
 		"IngressClass name for RedirectDomain Ingress resources.")
 	flag.StringVar(&redirectClusterIssuer, "redirect-cluster-issuer",
 		getEnvOrDefault("REDIRECT_CLUSTER_ISSUER", "letsencrypt"),
-		"cert-manager ClusterIssuer name for RedirectDomain certificates.")
+		"cert-manager ClusterIssuer name (matches redirect.clusterIssuer.name in values).")
 	opts := zap.Options{
 		Development: false,
 	}

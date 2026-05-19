@@ -8,15 +8,12 @@ certManager:
   enabled: true
   install: false   # assume cert-manager already installed in local cluster
 
-clusterIssuer:
-  enabled: false   # habilitar em prod com email e staging: false
-
-redirectController:
-  enabled: true
+redirect:
+  namespace: "deco-redirect-system"
   ingressClass: "nginx"
-  clusterIssuer: "letsencrypt"
-
-redirectNamespace: "deco-redirect-system"
+  clusterIssuer:
+    enabled: false   # habilitar em prod com email e staging: false
+    name: "letsencrypt"
 
 ingressNginx:
   enabled: true

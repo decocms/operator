@@ -350,32 +350,32 @@ func addRedirectNamespace(templatesDir string) error {
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: {{ .Values.redirectNamespace }}
+  name: {{ .Values.redirect.namespace }}
 {{- end }}
 `
 	return os.WriteFile(filepath.Join(templatesDir, "namespace-deco-redirect-system.yaml"), []byte(content), 0644)
 }
 
 func addClusterIssuer(templatesDir string) error {
-	content := `{{- if .Values.clusterIssuer.enabled }}
+	content := `{{- if .Values.redirect.clusterIssuer.enabled }}
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
-  name: {{ .Values.redirectController.clusterIssuer }}
+  name: {{ .Values.redirect.clusterIssuer.name }}
 spec:
   acme:
-    {{- if .Values.clusterIssuer.staging }}
+    {{- if .Values.redirect.clusterIssuer.staging }}
     server: https://acme-staging-v02.api.letsencrypt.org/directory
     {{- else }}
     server: https://acme-v02.api.letsencrypt.org/directory
     {{- end }}
-    email: {{ required "clusterIssuer.email is required when clusterIssuer.enabled=true" .Values.clusterIssuer.email }}
+    email: {{ required "redirect.clusterIssuer.email is required when redirect.clusterIssuer.enabled=true" .Values.redirect.clusterIssuer.email }}
     privateKeySecretRef:
       name: letsencrypt-account-key
     solvers:
       - http01:
           ingress:
-            ingressClassName: {{ .Values.redirectController.ingressClass }}
+            ingressClassName: {{ .Values.redirect.ingressClass }}
 {{- end }}
 `
 	return os.WriteFile(filepath.Join(templatesDir, "clusterissuer-letsencrypt.yaml"), []byte(content), 0644)
@@ -393,9 +393,9 @@ func addRedirectControllerArgs(templatesDir string) error {
 		return err
 	}
 
-	args := `        {{- if .Values.redirectController.enabled }}
-        - --redirect-ingress-class={{ .Values.redirectController.ingressClass }}
-        - --redirect-cluster-issuer={{ .Values.redirectController.clusterIssuer }}
+	args := `        {{- if .Values.redirect.ingressClass }}
+        - --redirect-ingress-class={{ .Values.redirect.ingressClass }}
+        - --redirect-cluster-issuer={{ .Values.redirect.clusterIssuer.name }}
         {{- end }}`
 
 	anchor := `        - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs`

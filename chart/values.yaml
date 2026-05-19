@@ -144,22 +144,16 @@ certManager:
   crds:
     enabled: true  # install CRDs on first install; set false on upgrades to avoid conflicts
 
-# Let's Encrypt ClusterIssuer — opt-in, requires cert-manager to be available.
-# email must be set to a valid address for ACME registration.
-clusterIssuer:
-  enabled: false
-  email: ""
-  staging: false   # set true to use Let's Encrypt staging (avoids rate limits during testing)
-
-# Redirect infrastructure — used by the RedirectDomain controller.
-redirectController:
-  enabled: true
-  ingressClass: "nginx"
-  clusterIssuer: "letsencrypt"
-
-# Namespace where nginx Ingress, cert-manager, ClusterIssuer, and dummy backend are deployed.
-# Created automatically when ingressNginx.enabled or certManager.install is true.
-redirectNamespace: "deco-redirect-system"
+# Redirect — all application-level redirect config in one place.
+# Subcharts (ingressNginx, certManager) stay at top-level due to Helm constraints.
+redirect:
+  namespace: "deco-redirect-system"   # namespace for nginx, cert-manager and redirect resources
+  ingressClass: "nginx"               # IngressClass used by RedirectDomain Ingresses
+  clusterIssuer:
+    enabled: false                    # set true to create the Let's Encrypt ClusterIssuer
+    name: "letsencrypt"               # ClusterIssuer name referenced by RedirectDomain certs
+    email: ""                         # required by Let's Encrypt ACME — set in prod values
+    staging: false                    # set true to use staging (avoids rate limits when testing)
 
 # Name overrides
 nameOverride: ""
