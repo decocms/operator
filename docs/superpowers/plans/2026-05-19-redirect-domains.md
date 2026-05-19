@@ -237,7 +237,6 @@ import (
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	networkingv1 "k8s.io/api/networking/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -293,47 +292,48 @@ func (r *RedirectDomainReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 }
 
 func (r *RedirectDomainReconciler) reconcileCertificate(ctx context.Context, rd *decositesv1alpha1.RedirectDomain) error {
-	name := resourceName(rd.Spec.From)
 	cert := &cmv1.Certificate{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
+			Name:      resourceName(rd.Spec.From),
 			Namespace: rd.Namespace,
-		},
-		Spec: cmv1.CertificateSpec{
-			SecretName: tlsSecretName(rd.Spec.From),
-			DNSNames:   []string{rd.Spec.From},
-			IssuerRef: cmmeta.ObjectReference{
-				Name: r.ClusterIssuer,
-				Kind: "ClusterIssuer",
-			},
 		},
 	}
 	if err := controllerutil.SetControllerReference(rd, cert, r.Scheme); err != nil {
 		return err
 	}
 
-	existing := &cmv1.Certificate{}
-	err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: rd.Namespace}, existing)
-	if errors.IsNotFound(err) {
-		return r.Create(ctx, cert)
-	}
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, cert, func() error {
+		cert.Spec = cmv1.CertificateSpec{
+			SecretName: tlsSecretName(rd.Spec.From),
+			DNSNames:   []string{rd.Spec.From},
+			IssuerRef: cmmeta.ObjectReference{
+				Name: r.ClusterIssuer,
+				Kind: "ClusterIssuer",
+			},
+		}
+		return nil
+	})
 	return err
 }
 
 func (r *RedirectDomainReconciler) reconcileIngress(ctx context.Context, rd *decositesv1alpha1.RedirectDomain) error {
-	name := resourceName(rd.Spec.From)
 	pathType := networkingv1.PathTypePrefix
-
-	// nginx returns 301 directly via this annotation — no traffic reaches the dummy backend.
 	ingress := &networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
+			Name:      resourceName(rd.Spec.From),
 			Namespace: rd.Namespace,
-			Annotations: map[string]string{
-				"nginx.ingress.kubernetes.io/permanent-redirect": rd.Spec.To,
-			},
 		},
-		Spec: networkingv1.IngressSpec{
+	}
+	if err := controllerutil.SetControllerReference(rd, ingress, r.Scheme); err != nil {
+		return err
+	}
+
+	// nginx returns 301 directly via this annotation — no traffic reaches the dummy backend.
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, ingress, func() error {
+		ingress.Annotations = map[string]string{
+			"nginx.ingress.kubernetes.io/permanent-redirect": rd.Spec.To,
+		}
+		ingress.Spec = networkingv1.IngressSpec{
 			IngressClassName: &r.IngressClass,
 			TLS: []networkingv1.IngressTLS{
 				{
@@ -362,17 +362,9 @@ func (r *RedirectDomainReconciler) reconcileIngress(ctx context.Context, rd *dec
 					},
 				},
 			},
-		},
-	}
-	if err := controllerutil.SetControllerReference(rd, ingress, r.Scheme); err != nil {
-		return err
-	}
-
-	existing := &networkingv1.Ingress{}
-	err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: rd.Namespace}, existing)
-	if errors.IsNotFound(err) {
-		return r.Create(ctx, ingress)
-	}
+		}
+		return nil
+	})
 	return err
 }
 
