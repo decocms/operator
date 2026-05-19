@@ -97,13 +97,14 @@ const (
 )
 
 // RedirectDomainSpec defines the desired state of RedirectDomain.
+// +kubebuilder:validation:XValidation:rule="self.to.contains('.'+self.from) || self.to.contains('//'+self.from)",message="redirect target must be within the same domain as 'from' (e.g. from: client.com → to: https://www.client.com)"
 type RedirectDomainSpec struct {
 	// From is the apex domain to redirect (e.g. "client.com").
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	From string `json:"from"`
 
-	// To is the full target URL (e.g. "https://www.client.com").
+	// To is the full target URL within the same domain (e.g. "https://www.client.com").
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	To string `json:"to"`
@@ -596,6 +597,18 @@ var _ = Describe("RedirectDomain Controller", func() {
 			Expect(found).To(BeTrue(), "CertificateReady condition should be present")
 		})
 
+		It("should reject a RedirectDomain whose 'to' is outside the 'from' domain", func() {
+			err := k8sClient.Create(ctx, &decositesv1alpha1.RedirectDomain{
+				ObjectMeta: metav1.ObjectMeta{Name: "invalid-redirect", Namespace: rdNS},
+				Spec: decositesv1alpha1.RedirectDomainSpec{
+					From: "client.com",
+					To:   "https://www.other.com",
+				},
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("redirect target must be within the same domain"))
+		})
+
 		It("should not create duplicate Certificate on repeated reconcile", func() {
 			_, err := newReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
@@ -915,6 +928,7 @@ git commit -m "docs: add RedirectDomain sample manifest"
 - ✅ Status condition `CertificateReady` reflects cert-manager state
 - ✅ Owner references ensure Certificate + Ingress are deleted when RedirectDomain is deleted
 - ✅ Idempotent: repeated reconcile does not duplicate resources
+- ✅ CEL validation rejects cross-domain redirects at API creation time (e.g. `from: client.com` → `to: https://www.other.com` é rejeitado)
 - ✅ nginx Ingress App opt-in via `ingressNginx.enabled` with configurable LoadBalancer annotations
 - ✅ cert-manager opt-in via `certManager.enabled` — installs to `deco-redirect-system`
 - ✅ ClusterIssuer opt-in via `clusterIssuer.enabled` — configurable email, staging flag
