@@ -64,10 +64,23 @@ rules:
   - list
   - watch
 - apiGroups:
+  - cert-manager.io
+  resources:
+  - certificates
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - deco.sites
   resources:
   - decofiles
   - decos
+  - redirectdomains
   verbs:
   - create
   - delete
@@ -81,6 +94,7 @@ rules:
   resources:
   - decofiles/finalizers
   - decos/finalizers
+  - redirectdomains/finalizers
   verbs:
   - update
 - apiGroups:
@@ -88,10 +102,23 @@ rules:
   resources:
   - decofiles/status
   - decos/status
+  - redirectdomains/status
   verbs:
   - get
   - patch
   - update
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
   - serving.knative.dev
   resources:
