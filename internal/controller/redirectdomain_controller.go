@@ -26,8 +26,12 @@ type RedirectDomainReconciler struct {
 	Scheme        *runtime.Scheme
 	IngressClass  string // nginx ingress class name, e.g. "nginx"
 	ClusterIssuer string // cert-manager ClusterIssuer name, e.g. "letsencrypt"
-	DummyBackend  string // shared dummy Service name, e.g. "redirect-dummy-backend"
 }
+
+// dummyBackendName is referenced by every RedirectDomain Ingress to satisfy the k8s API
+// schema requirement for a backend. nginx never routes to it because permanent-redirect
+// intercepts first. The Service does not need to exist.
+const dummyBackendName = "redirect-dummy-backend"
 
 // +kubebuilder:rbac:groups=deco.sites,resources=redirectdomains,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=deco.sites,resources=redirectdomains/status,verbs=get;update;patch
@@ -127,7 +131,7 @@ func (r *RedirectDomainReconciler) reconcileIngress(ctx context.Context, rd *dec
 									PathType: &pathType,
 									Backend: networkingv1.IngressBackend{
 										Service: &networkingv1.IngressServiceBackend{
-											Name: r.DummyBackend,
+											Name: dummyBackendName,
 											Port: networkingv1.ServiceBackendPort{Number: 80},
 										},
 									},

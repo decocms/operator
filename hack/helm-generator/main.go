@@ -99,9 +99,6 @@ func main() {
 	}
 
 	// Add redirect infrastructure templates
-	if err := addRedirectDummyBackend(templatesDir); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect dummy backend: %v\n", err)
-	}
 	if err := addRedirectNamespace(templatesDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect namespace: %v\n", err)
 	}
@@ -347,27 +344,6 @@ metadata:
 	return os.WriteFile(filepath.Join(templatesDir, "serviceaccount-builder.yaml"), []byte(content), 0644)
 }
 
-func addRedirectDummyBackend(templatesDir string) error {
-	content := `{{- if .Values.redirectController.enabled }}
-# Dummy ClusterIP — referenced by RedirectDomain Ingresses to satisfy k8s API validation.
-# nginx never proxies to it because permanent-redirect annotation overrides the backend.
-# selector uses a label that no pod carries, so Endpoints stays empty intentionally.
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ .Values.redirectController.dummyBackend }}
-  namespace: {{ .Values.redirectNamespace }}
-spec:
-  type: ClusterIP
-  ports:
-    - port: 80
-      targetPort: 80
-  selector:
-    app: redirect-dummy-backend-nonexist
-{{- end }}
-`
-	return os.WriteFile(filepath.Join(templatesDir, "service-redirect-dummy-backend.yaml"), []byte(content), 0644)
-}
 
 func addRedirectNamespace(templatesDir string) error {
 	content := `{{- if or .Values.ingressNginx.enabled .Values.certManager.install }}
@@ -420,7 +396,6 @@ func addRedirectControllerArgs(templatesDir string) error {
 	args := `        {{- if .Values.redirectController.enabled }}
         - --redirect-ingress-class={{ .Values.redirectController.ingressClass }}
         - --redirect-cluster-issuer={{ .Values.redirectController.clusterIssuer }}
-        - --redirect-dummy-backend={{ .Values.redirectController.dummyBackend }}
         {{- end }}`
 
 	anchor := `        - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs`

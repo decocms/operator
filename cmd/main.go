@@ -119,16 +119,12 @@ func main() {
 
 	var redirectIngressClass string
 	var redirectClusterIssuer string
-	var redirectDummyBackend string
 	flag.StringVar(&redirectIngressClass, "redirect-ingress-class",
 		getEnvOrDefault("REDIRECT_INGRESS_CLASS", "nginx"),
 		"IngressClass name for RedirectDomain Ingress resources.")
 	flag.StringVar(&redirectClusterIssuer, "redirect-cluster-issuer",
 		getEnvOrDefault("REDIRECT_CLUSTER_ISSUER", "letsencrypt"),
 		"cert-manager ClusterIssuer name for RedirectDomain certificates.")
-	flag.StringVar(&redirectDummyBackend, "redirect-dummy-backend",
-		getEnvOrDefault("REDIRECT_DUMMY_BACKEND", "redirect-dummy-backend"),
-		"Shared dummy Service name referenced by RedirectDomain Ingresses.")
 	opts := zap.Options{
 		Development: false,
 	}
@@ -365,7 +361,6 @@ func main() {
 		Scheme:        mgr.GetScheme(),
 		IngressClass:  redirectIngressClass,
 		ClusterIssuer: redirectClusterIssuer,
-		DummyBackend:  redirectDummyBackend,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "RedirectDomain")
 		os.Exit(1)

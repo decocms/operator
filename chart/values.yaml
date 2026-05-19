@@ -156,7 +156,6 @@ redirectController:
   enabled: true
   ingressClass: "nginx"
   clusterIssuer: "letsencrypt"
-  dummyBackend: "redirect-dummy-backend"
 
 # Namespace where nginx Ingress, cert-manager, ClusterIssuer, and dummy backend are deployed.
 # Created automatically when ingressNginx.enabled or certManager.install is true.

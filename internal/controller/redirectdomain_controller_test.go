@@ -34,7 +34,6 @@ var _ = Describe("RedirectDomain Controller", func() {
 				Scheme:        k8sClient.Scheme(),
 				IngressClass:  "nginx",
 				ClusterIssuer: "letsencrypt",
-				DummyBackend:  "redirect-dummy-backend",
 			}
 		}
 
