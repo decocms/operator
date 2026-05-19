@@ -890,7 +890,462 @@ git commit -m "feat: add cert-manager subchart, deco-redirect-system namespace, 
 
 ---
 
-## Task 8: Add a sample RedirectDomain manifest
+## Task 8: HTTPS API for redirect management
+
+O admin (app Deno) não tem acesso direto à k8s API. O operator expõe um servidor HTTPS com basic auth que cria e deleta `RedirectDomain` CRs. O TLS usa o mesmo padrão do webhook: cert-manager emite um certificado self-signed para o Service do operator, montado como volume.
+
+**Endpoints:**
+- `POST /redirects` — cria um `RedirectDomain` CR
+- `DELETE /redirects/:domain` — deleta um `RedirectDomain` CR
+- `GET /redirects` — lista todos os `RedirectDomain` CRs
+
+**Autenticação:** Basic Auth via `Authorization: Basic <base64(user:pass)>`. Credenciais lidas de env vars (Secret montado).
+
+**TLS:** cert-manager `Certificate` (self-signed Issuer já existente) → Secret `redirect-api-tls-cert` → montado em `/tmp/redirect-api-certs`. `ListenAndServeTLS` usa `tls.crt` e `tls.key` desse volume.
+
+**Files:**
+- Create: `internal/api/server.go` — HTTPS server registrado no manager
+- Create: `internal/api/handlers.go` — handlers dos 3 endpoints
+- Create: `internal/api/server_test.go` — testes dos handlers
+- Modify: `cmd/main.go` — registrar o API server no manager
+- Modify: `chart/values.yaml` — `redirectApi` config
+- Create: `chart/templates/service-redirect-api.yaml` — ClusterIP Service (DNS name para o cert)
+- Create: `chart/templates/certificate-redirect-api.yaml` — Certificate CR (TLS)
+- Modify: `chart/templates/deployment-operator-controller-manager.yaml` — montar Secret TLS + env vars
+
+- [ ] **Step 1: Write the API server**
+
+```go
+// internal/api/server.go
+package api
+
+import (
+	"context"
+	"net/http"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+)
+
+type Server struct {
+	client   client.Client
+	username string
+	password string
+	addr     string
+	certFile string
+	keyFile  string
+}
+
+func NewServer(c client.Client, addr, username, password, certFile, keyFile string) *Server {
+	return &Server{
+		client:   c,
+		addr:     addr,
+		username: username,
+		password: password,
+		certFile: certFile,
+		keyFile:  keyFile,
+	}
+}
+
+func (s *Server) Start(ctx context.Context) error {
+	log := logf.FromContext(ctx)
+	mux := http.NewServeMux()
+	mux.Handle("/redirects", s.basicAuth(http.HandlerFunc(s.handleRedirects)))
+	mux.Handle("/redirects/", s.basicAuth(http.HandlerFunc(s.handleRedirectByDomain)))
+
+	srv := &http.Server{Addr: s.addr, Handler: mux}
+	go func() {
+		<-ctx.Done()
+		_ = srv.Shutdown(context.Background())
+	}()
+
+	log.Info("redirect API server listening (HTTPS)", "addr", s.addr)
+	if err := srv.ListenAndServeTLS(s.certFile, s.keyFile); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
+}
+
+func (s *Server) NeedLeaderElection() bool { return false }
+
+func (s *Server) basicAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u, p, ok := r.BasicAuth()
+		if !ok || u != s.username || p != s.password {
+			w.Header().Set("WWW-Authenticate", `Basic realm="redirect-api"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+```
+
+- [ ] **Step 2: Write the handlers**
+
+```go
+// internal/api/handlers.go
+package api
+
+import (
+	"encoding/json"
+	"net/http"
+	"strings"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
+)
+
+type redirectRequest struct {
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Namespace string `json:"namespace"`
+}
+
+func (s *Server) handleRedirects(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		s.createRedirect(w, r)
+	case http.MethodGet:
+		s.listRedirects(w, r)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleRedirectByDomain(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.deleteRedirect(w, r)
+}
+
+func (s *Server) createRedirect(w http.ResponseWriter, r *http.Request) {
+	var req redirectRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.From == "" || req.To == "" {
+		http.Error(w, "from and to are required", http.StatusBadRequest)
+		return
+	}
+	if req.Namespace == "" {
+		req.Namespace = "redirect"
+	}
+
+	rd := &decositesv1alpha1.RedirectDomain{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      sanitizeDomain(req.From),
+			Namespace: req.Namespace,
+		},
+		Spec: decositesv1alpha1.RedirectDomainSpec{
+			From: req.From,
+			To:   req.To,
+		},
+	}
+	if err := s.client.Create(r.Context(), rd); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (s *Server) deleteRedirect(w http.ResponseWriter, r *http.Request) {
+	domain := strings.TrimPrefix(r.URL.Path, "/redirects/")
+	ns := r.URL.Query().Get("namespace")
+	if ns == "" {
+		ns = "redirect"
+	}
+
+	rd := &decositesv1alpha1.RedirectDomain{}
+	if err := s.client.Get(r.Context(), types.NamespacedName{
+		Name: sanitizeDomain(domain), Namespace: ns,
+	}, rd); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if err := s.client.Delete(r.Context(), rd); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) listRedirects(w http.ResponseWriter, r *http.Request) {
+	ns := r.URL.Query().Get("namespace")
+	if ns == "" {
+		ns = "redirect"
+	}
+
+	list := &decositesv1alpha1.RedirectDomainList{}
+	if err := s.client.List(r.Context(), list, client.InNamespace(ns)); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(list.Items)
+}
+
+// sanitizeDomain is duplicated here to keep the api package self-contained.
+func sanitizeDomain(domain string) string {
+	return strings.NewReplacer(".", "-", "_", "-").Replace(domain)
+}
+```
+
+- [ ] **Step 3: Write the tests**
+
+```go
+// internal/api/server_test.go
+package api
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
+)
+
+func newTestServer(t *testing.T) *Server {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	_ = decositesv1alpha1.AddToScheme(scheme)
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+	return NewServer(c, ":0", "user", "pass", "", "")
+}
+
+func TestCreateRedirect(t *testing.T) {
+	s := newTestServer(t)
+	body, _ := json.Marshal(redirectRequest{From: "client.com", To: "https://www.client.com"})
+	req := httptest.NewRequest(http.MethodPost, "/redirects", bytes.NewReader(body))
+	req.SetBasicAuth("user", "pass")
+	w := httptest.NewRecorder()
+	s.handleRedirects(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateRedirect_Unauthorized(t *testing.T) {
+	s := newTestServer(t)
+	body, _ := json.Marshal(redirectRequest{From: "client.com", To: "https://www.client.com"})
+	req := httptest.NewRequest(http.MethodPost, "/redirects", bytes.NewReader(body))
+	// no basic auth
+	w := httptest.NewRecorder()
+	s.basicAuth(http.HandlerFunc(s.handleRedirects)).ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestDeleteRedirect(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = decositesv1alpha1.AddToScheme(scheme)
+	existing := &decositesv1alpha1.RedirectDomain{
+		ObjectMeta: metav1.ObjectMeta{Name: "client-com", Namespace: "redirect"},
+		Spec:       decositesv1alpha1.RedirectDomainSpec{From: "client.com", To: "https://www.client.com"},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	s := NewServer(c, ":0", "user", "pass", "", "")
+
+	req := httptest.NewRequest(http.MethodDelete, "/redirects/client.com", nil)
+	req.SetBasicAuth("user", "pass")
+	w := httptest.NewRecorder()
+	s.handleRedirectByDomain(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestListRedirects(t *testing.T) {
+	s := newTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/redirects", nil)
+	req.SetBasicAuth("user", "pass")
+	w := httptest.NewRecorder()
+	s.handleRedirects(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+}
+```
+
+- [ ] **Step 4: Register the API server in main.go**
+
+Add after the `RedirectDomainReconciler` registration:
+```go
+var redirectAPIAddr     string
+var redirectAPIUser     string
+var redirectAPIPass     string
+var redirectAPICertFile string
+var redirectAPIKeyFile  string
+
+flag.StringVar(&redirectAPIAddr, "redirect-api-addr",
+    getEnvOrDefault("REDIRECT_API_ADDR", ":9090"),
+    "Address for the redirect management HTTPS API.")
+flag.StringVar(&redirectAPIUser, "redirect-api-user",
+    os.Getenv("REDIRECT_API_USER"),
+    "Basic auth username for the redirect API.")
+flag.StringVar(&redirectAPIPass, "redirect-api-password",
+    os.Getenv("REDIRECT_API_PASSWORD"),
+    "Basic auth password for the redirect API.")
+flag.StringVar(&redirectAPICertFile, "redirect-api-cert-file",
+    getEnvOrDefault("REDIRECT_API_CERT_FILE", "/tmp/redirect-api-certs/tls.crt"),
+    "TLS certificate file for the redirect API.")
+flag.StringVar(&redirectAPIKeyFile, "redirect-api-key-file",
+    getEnvOrDefault("REDIRECT_API_KEY_FILE", "/tmp/redirect-api-certs/tls.key"),
+    "TLS key file for the redirect API.")
+
+// After manager is created:
+if redirectAPIUser != "" && redirectAPIPass != "" {
+    if err := mgr.Add(api.NewServer(
+        mgr.GetClient(),
+        redirectAPIAddr,
+        redirectAPIUser,
+        redirectAPIPass,
+        redirectAPICertFile,
+        redirectAPIKeyFile,
+    )); err != nil {
+        setupLog.Error(err, "unable to add redirect API server")
+        os.Exit(1)
+    }
+}
+```
+
+Add import: `"github.com/deco-sites/decofile-operator/internal/api"`
+
+- [ ] **Step 5: Add redirectApi config to values.yaml**
+
+```yaml
+redirectApi:
+  enabled: false
+  addr: ":9090"
+  # Credentials — use existingSecret in production.
+  username: ""
+  password: ""
+  existingSecret: ""   # Secret name with keys REDIRECT_API_USER and REDIRECT_API_PASSWORD
+  tlsSecretName: "redirect-api-tls-cert"  # populated by the Certificate CR below
+```
+
+- [ ] **Step 6: Create Service for the API (DNS name for TLS cert)**
+
+Create `chart/templates/service-redirect-api.yaml`:
+```yaml
+{{- if .Values.redirectApi.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-redirect-api
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    app.kubernetes.io/name: operator
+    control-plane: controller-manager
+  ports:
+  - name: https
+    port: 443
+    targetPort: 9090
+    protocol: TCP
+{{- end }}
+```
+
+- [ ] **Step 7: Create Certificate CR for the API TLS**
+
+Create `chart/templates/certificate-redirect-api.yaml`:
+```yaml
+{{- if and .Values.redirectApi.enabled .Values.certManager.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Release.Name }}-redirect-api-cert
+  namespace: {{ .Release.Namespace }}
+spec:
+  dnsNames:
+  - {{ .Release.Name }}-redirect-api.{{ .Release.Namespace }}.svc
+  - {{ .Release.Name }}-redirect-api.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: {{ .Release.Name }}-selfsigned-issuer
+  secretName: {{ .Values.redirectApi.tlsSecretName }}
+{{- end }}
+```
+
+- [ ] **Step 8: Mount TLS Secret and credentials in the Deployment**
+
+In `chart/templates/deployment-operator-controller-manager.yaml`, add to `env`:
+```yaml
+{{- if .Values.redirectApi.enabled }}
+- name: REDIRECT_API_ADDR
+  value: {{ .Values.redirectApi.addr | quote }}
+{{- if .Values.redirectApi.existingSecret }}
+- name: REDIRECT_API_USER
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.redirectApi.existingSecret }}
+      key: REDIRECT_API_USER
+- name: REDIRECT_API_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.redirectApi.existingSecret }}
+      key: REDIRECT_API_PASSWORD
+{{- else }}
+- name: REDIRECT_API_USER
+  value: {{ .Values.redirectApi.username | quote }}
+- name: REDIRECT_API_PASSWORD
+  value: {{ .Values.redirectApi.password | quote }}
+{{- end }}
+{{- end }}
+```
+
+Add to `volumeMounts`:
+```yaml
+{{- if .Values.redirectApi.enabled }}
+- mountPath: /tmp/redirect-api-certs
+  name: redirect-api-certs
+  readOnly: true
+{{- end }}
+```
+
+Add to `volumes`:
+```yaml
+{{- if .Values.redirectApi.enabled }}
+- name: redirect-api-certs
+  secret:
+    secretName: {{ .Values.redirectApi.tlsSecretName }}
+{{- end }}
+```
+
+- [ ] **Step 9: Run tests**
+
+```bash
+go test ./internal/api/... -v
+```
+
+Expected: all 4 tests pass.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add internal/api/ cmd/main.go chart/values.yaml \
+        chart/templates/service-redirect-api.yaml \
+        chart/templates/certificate-redirect-api.yaml \
+        chart/templates/deployment-operator-controller-manager.yaml
+git commit -m "feat: add HTTPS API for redirect management with basic auth and cert-manager TLS"
+```
+
+---
+
+## Task 9: Add a sample RedirectDomain manifest
 
 **Files:**
 - Create: `config/samples/redirectdomain_sample.yaml`
