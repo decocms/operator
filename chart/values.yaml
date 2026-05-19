@@ -131,6 +131,10 @@ build:
 ingressNginx:
   enabled: false
   controller:
+    ingressClass: redirect-nginx
+    ingressClassResource:
+      name: redirect-nginx
+      controllerValue: "k8s.io/redirect-nginx"
     service:
       annotations: {}
 
@@ -148,7 +152,7 @@ certManager:
 # Subcharts (ingressNginx, certManager) stay at top-level due to Helm constraints.
 redirect:
   namespace: "deco-redirect-system"   # namespace for nginx, cert-manager and redirect resources
-  ingressClass: "nginx"               # IngressClass used by RedirectDomain Ingresses
+  ingressClass: "redirect-nginx"       # IngressClass used by RedirectDomain Ingresses
   clusterIssuer:
     enabled: false                    # set true to create the Let's Encrypt ClusterIssuer
     name: "letsencrypt"               # ClusterIssuer name referenced by RedirectDomain certs
