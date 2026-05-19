@@ -114,6 +114,26 @@ build:
   nodeSelector: {}      # Default nodeSelector for build pods (overridable per-site via spec.build.nodeSelector)
   tolerations: []       # Default tolerations for build pods (overridable per-site via spec.build.tolerations)
 
+# nginx Ingress controller — fronts the redirect service with a cloud LoadBalancer.
+# Deployed as a subchart (ingress-nginx). Set enabled: true to install it.
+# All AWS NLB / EIP annotations go under service.annotations — nothing is hardcoded.
+#
+# Example for AWS NLB with EIP allocations:
+#   ingressNginx:
+#     enabled: true
+#     controller:
+#       service:
+#         annotations:
+#           service.beta.kubernetes.io/aws-load-balancer-type: external
+#           service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+#           service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+#           service.beta.kubernetes.io/aws-load-balancer-eip-allocations: "eipalloc-xxx,eipalloc-yyy,eipalloc-zzz"
+ingressNginx:
+  enabled: false
+  controller:
+    service:
+      annotations: {}
+
 # Name overrides
 nameOverride: ""
 fullnameOverride: ""
