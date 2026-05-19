@@ -1,0 +1,6 @@
+{{- if or .Values.ingressNginx.enabled .Values.certManager.install }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.redirectNamespace }}
+{{- end }}

@@ -134,6 +134,34 @@ ingressNginx:
     service:
       annotations: {}
 
+# cert-manager subchart — set install: true to deploy cert-manager alongside the operator.
+# Set install: false if cert-manager is already installed cluster-wide.
+# certManager.enabled controls whether the operator's own cert-manager resources
+# (webhook Certificate, Issuer) are rendered — keep enabled: true regardless of install.
+certManager:
+  enabled: true
+  install: false   # set true only if cert-manager is not already installed
+  crds:
+    enabled: true  # install CRDs on first install; set false on upgrades to avoid conflicts
+
+# Let's Encrypt ClusterIssuer — opt-in, requires cert-manager to be available.
+# email must be set to a valid address for ACME registration.
+clusterIssuer:
+  enabled: false
+  email: ""
+  staging: false   # set true to use Let's Encrypt staging (avoids rate limits during testing)
+
+# Redirect infrastructure — used by the RedirectDomain controller.
+redirectController:
+  enabled: true
+  ingressClass: "nginx"
+  clusterIssuer: "letsencrypt"
+  dummyBackend: "redirect-dummy-backend"
+
+# Namespace where nginx Ingress, cert-manager, ClusterIssuer, and dummy backend are deployed.
+# Created automatically when ingressNginx.enabled or certManager.install is true.
+redirectNamespace: "deco-redirect-system"
+
 # Name overrides
 nameOverride: ""
 fullnameOverride: ""

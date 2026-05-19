@@ -31,6 +31,11 @@ spec:
         - --leader-elect
         - --health-probe-bind-address=:8081
         - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
+        {{- if .Values.redirectController.enabled }}
+        - --redirect-ingress-class={{ .Values.redirectController.ingressClass }}
+        - --redirect-cluster-issuer={{ .Values.redirectController.clusterIssuer }}
+        - --redirect-dummy-backend={{ .Values.redirectController.dummyBackend }}
+        {{- end }}
         command:
         - /manager
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"

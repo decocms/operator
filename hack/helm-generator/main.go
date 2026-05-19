@@ -98,6 +98,20 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Warning: Could not add pod annotations to deployment: %v\n", err)
 	}
 
+	// Add redirect infrastructure templates
+	if err := addRedirectDummyBackend(templatesDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect dummy backend: %v\n", err)
+	}
+	if err := addRedirectNamespace(templatesDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect namespace: %v\n", err)
+	}
+	if err := addClusterIssuer(templatesDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not add ClusterIssuer: %v\n", err)
+	}
+	if err := addRedirectControllerArgs(templatesDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect controller args: %v\n", err)
+	}
+
 	fmt.Printf("✓ Generated %d Helm templates\n\n", fileCount)
 	fmt.Println("Test with:")
 	fmt.Println("  make helm-lint")
@@ -331,4 +345,85 @@ metadata:
 {{- end }}
 `
 	return os.WriteFile(filepath.Join(templatesDir, "serviceaccount-builder.yaml"), []byte(content), 0644)
+}
+
+func addRedirectDummyBackend(templatesDir string) error {
+	content := `{{- if .Values.redirectController.enabled }}
+# Dummy ClusterIP — referenced by RedirectDomain Ingresses to satisfy k8s API validation.
+# nginx never proxies to it because permanent-redirect annotation overrides the backend.
+# selector uses a label that no pod carries, so Endpoints stays empty intentionally.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.redirectController.dummyBackend }}
+  namespace: {{ .Values.redirectNamespace }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+  selector:
+    app: redirect-dummy-backend-nonexist
+{{- end }}
+`
+	return os.WriteFile(filepath.Join(templatesDir, "service-redirect-dummy-backend.yaml"), []byte(content), 0644)
+}
+
+func addRedirectNamespace(templatesDir string) error {
+	content := `{{- if or .Values.ingressNginx.enabled .Values.certManager.install }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.redirectNamespace }}
+{{- end }}
+`
+	return os.WriteFile(filepath.Join(templatesDir, "namespace-deco-redirect-system.yaml"), []byte(content), 0644)
+}
+
+func addClusterIssuer(templatesDir string) error {
+	content := `{{- if .Values.clusterIssuer.enabled }}
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Values.redirectController.clusterIssuer }}
+spec:
+  acme:
+    {{- if .Values.clusterIssuer.staging }}
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    {{- else }}
+    server: https://acme-v02.api.letsencrypt.org/directory
+    {{- end }}
+    email: {{ required "clusterIssuer.email is required when clusterIssuer.enabled=true" .Values.clusterIssuer.email }}
+    privateKeySecretRef:
+      name: letsencrypt-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: {{ .Values.redirectController.ingressClass }}
+{{- end }}
+`
+	return os.WriteFile(filepath.Join(templatesDir, "clusterissuer-letsencrypt.yaml"), []byte(content), 0644)
+}
+
+func addRedirectControllerArgs(templatesDir string) error {
+	files, err := filepath.Glob(filepath.Join(templatesDir, "deployment-*.yaml"))
+	if err != nil || len(files) == 0 {
+		return fmt.Errorf("no deployment file found")
+	}
+
+	deploymentFile := files[0]
+	content, err := os.ReadFile(deploymentFile)
+	if err != nil {
+		return err
+	}
+
+	args := `        {{- if .Values.redirectController.enabled }}
+        - --redirect-ingress-class={{ .Values.redirectController.ingressClass }}
+        - --redirect-cluster-issuer={{ .Values.redirectController.clusterIssuer }}
+        - --redirect-dummy-backend={{ .Values.redirectController.dummyBackend }}
+        {{- end }}`
+
+	anchor := `        - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs`
+	contentStr := strings.Replace(string(content), anchor, anchor+"\n"+args, 1)
+	return os.WriteFile(deploymentFile, []byte(contentStr), 0644)
 }
