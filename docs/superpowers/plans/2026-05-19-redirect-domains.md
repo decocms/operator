@@ -191,6 +191,7 @@ the Service to exist to pass API validation. One shared Service serves all `Redi
 {{- if .Values.redirectController.enabled }}
 # Dummy ClusterIP — referenced by RedirectDomain Ingresses to satisfy k8s API validation.
 # nginx never proxies to it because permanent-redirect annotation overrides the backend.
+# selector uses a label that no pod carries, so Endpoints stays empty intentionally.
 apiVersion: v1
 kind: Service
 metadata:
@@ -201,7 +202,8 @@ spec:
   ports:
     - port: 80
       targetPort: 80
-  selector: {}
+  selector:
+    app: redirect-dummy-backend-nonexist
 {{- end }}
 ```
 
@@ -282,13 +284,17 @@ func (r *RedirectDomainReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
-	if err := r.updateStatus(ctx, rd); err != nil {
+	certReady, err := r.updateStatus(ctx, rd)
+	if err != nil {
 		log.Error(err, "failed to update status")
 		return ctrl.Result{}, err
 	}
 
-	// Requeue to pick up cert-manager status changes.
-	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	// Only requeue while cert is still provisioning; once ready, Watch events drive reconciliation.
+	if !certReady {
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+	return ctrl.Result{}, nil
 }
 
 func (r *RedirectDomainReconciler) reconcileCertificate(ctx context.Context, rd *decositesv1alpha1.RedirectDomain) error {
@@ -368,11 +374,10 @@ func (r *RedirectDomainReconciler) reconcileIngress(ctx context.Context, rd *dec
 	return err
 }
 
-func (r *RedirectDomainReconciler) updateStatus(ctx context.Context, rd *decositesv1alpha1.RedirectDomain) error {
-	certName := resourceName(rd.Spec.From)
-	cert := &cmv1.Certificate{}
+func (r *RedirectDomainReconciler) updateStatus(ctx context.Context, rd *decositesv1alpha1.RedirectDomain) (bool, error) {
 	certReady := false
-	if err := r.Get(ctx, types.NamespacedName{Name: certName, Namespace: rd.Namespace}, cert); err == nil {
+	cert := &cmv1.Certificate{}
+	if err := r.Get(ctx, types.NamespacedName{Name: resourceName(rd.Spec.From), Namespace: rd.Namespace}, cert); err == nil {
 		for _, c := range cert.Status.Conditions {
 			if c.Type == cmv1.CertificateConditionReady && c.Status == cmmeta.ConditionTrue {
 				certReady = true
@@ -398,7 +403,7 @@ func (r *RedirectDomainReconciler) updateStatus(ctx context.Context, rd *decosit
 		ObservedGeneration: rd.Generation,
 	})
 
-	return r.Status().Patch(ctx, patch, client.MergeFrom(rd))
+	return certReady, r.Status().Patch(ctx, patch, client.MergeFrom(rd))
 }
 
 // resourceName returns a deterministic k8s-safe name for a domain.
@@ -829,6 +834,7 @@ spec:
 ```yaml
 # chart/templates/service-redirect-dummy-backend.yaml
 {{- if .Values.redirectController.enabled }}
+# selector uses a label that no pod carries, so Endpoints stays empty intentionally.
 apiVersion: v1
 kind: Service
 metadata:
@@ -839,7 +845,8 @@ spec:
   ports:
     - port: 80
       targetPort: 80
-  selector: {}
+  selector:
+    app: redirect-dummy-backend-nonexist
 {{- end }}
 ```
 
