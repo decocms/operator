@@ -52,11 +52,13 @@ spec:
             properties:
               from:
                 description: From is the apex domain to redirect (e.g. "client.com").
+                maxLength: 253
                 minLength: 1
                 type: string
               to:
                 description: To is the full target URL within the same domain (e.g.
                   "https://www.client.com").
+                maxLength: 2048
                 minLength: 1
                 type: string
             required:

@@ -12,11 +12,13 @@ type RedirectDomainSpec struct {
 	// From is the apex domain to redirect (e.g. "client.com").
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
 	From string `json:"from"`
 
 	// To is the full target URL within the same domain (e.g. "https://www.client.com").
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2048
 	To string `json:"to"`
 }
 
