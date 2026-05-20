@@ -267,6 +267,16 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Namespace")
 		os.Exit(1)
 	}
+
+	bsReconciler := &controller.BuildSecretsReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}
+	if err := bsReconciler.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "BuildSecrets")
+		os.Exit(1)
+	}
+
 	// Start Sentinel failover watcher if enabled and Sentinel is configured.
 	// leaderElectedRunnable ensures only the active leader subscribes — prevents
 	// redundant TriggerResyncAll calls from non-leader replicas.
