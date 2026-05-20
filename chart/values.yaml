@@ -114,7 +114,7 @@ build:
   nodeSelector: {}      # Default nodeSelector for build pods (overridable per-site via spec.build.nodeSelector)
   tolerations: []       # Default tolerations for build pods (overridable per-site via spec.build.tolerations)
 
-# ── Apex Redirect ────────────────────────────────────────────────────────────
+# ── Domain Redirect ──────────────────────────────────────────────────────────
 # Application-level redirect config — all features are opt-in.
 # Set ingressClass to enable RedirectDomain reconciliation.
 redirect:
