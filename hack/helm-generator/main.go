@@ -174,7 +174,7 @@ func applySubstitutions(content string) string {
 
 func addConditionals(content, kind string) string {
 	if strings.Contains(kind, "certificate") || strings.Contains(kind, "issuer") {
-		return "{{- if .Values.webhook.enabled }}\n" + content + "\n{{- end }}"
+		return "{{- if .Values.certManager.enabled }}\n" + content + "\n{{- end }}"
 	}
 
 	if strings.Contains(kind, "webhook") {

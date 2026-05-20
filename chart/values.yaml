@@ -143,6 +143,8 @@ ingress-nginx:
 # cert-manager must be installed cluster-wide (required when webhook.enabled=true).
 # Install separately: helm install cert-manager jetstack/cert-manager \
 #   -n cert-manager --create-namespace --set crds.enabled=true
+certManager:
+  enabled: true
 
 # Name overrides
 nameOverride: ""
