@@ -13,12 +13,14 @@ type RedirectDomainSpec struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$`
 	From string `json:"from"`
 
 	// To is the full target URL within the same domain (e.g. "https://www.client.com").
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:Pattern=`^https?://`
 	To string `json:"to"`
 }
 

@@ -37,7 +37,9 @@ resources:
     cpu: 1000m
     memory: 2Gi
 
-# cert-manager configuration
+# cert-manager must be installed cluster-wide (required when webhook.enabled=true).
+# Install separately: helm install cert-manager jetstack/cert-manager \
+#   -n cert-manager --create-namespace --set crds.enabled=true
 certManager:
   enabled: true
 
@@ -139,12 +141,6 @@ ingress-nginx:
       controllerValue: "k8s.io/redirect-nginx"
     service:
       annotations: {}
-
-# cert-manager must be installed cluster-wide (required when webhook.enabled=true).
-# Install separately: helm install cert-manager jetstack/cert-manager \
-#   -n cert-manager --create-namespace --set crds.enabled=true
-certManager:
-  enabled: true
 
 # Name overrides
 nameOverride: ""

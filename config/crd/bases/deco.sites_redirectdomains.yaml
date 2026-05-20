@@ -54,12 +54,14 @@ spec:
                 description: From is the apex domain to redirect (e.g. "client.com").
                 maxLength: 253
                 minLength: 1
+                pattern: ^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$
                 type: string
               to:
                 description: To is the full target URL within the same domain (e.g.
                   "https://www.client.com").
                 maxLength: 2048
                 minLength: 1
+                pattern: ^https?://
                 type: string
             required:
             - from

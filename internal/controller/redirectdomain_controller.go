@@ -85,13 +85,11 @@ func (r *RedirectDomainReconciler) reconcileCertificate(ctx context.Context, rd 
 	}
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, cert, func() error {
-		cert.Spec = cmv1.CertificateSpec{
-			SecretName: tlsSecretName(rd.Spec.From),
-			DNSNames:   []string{rd.Spec.From},
-			IssuerRef: cmmeta.ObjectReference{
-				Name: r.ClusterIssuer,
-				Kind: "ClusterIssuer",
-			},
+		cert.Spec.SecretName = tlsSecretName(rd.Spec.From)
+		cert.Spec.DNSNames = []string{rd.Spec.From}
+		cert.Spec.IssuerRef = cmmeta.ObjectReference{
+			Name: r.ClusterIssuer,
+			Kind: "ClusterIssuer",
 		}
 		return nil
 	})
