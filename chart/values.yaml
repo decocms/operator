@@ -114,26 +114,28 @@ build:
   nodeSelector: {}      # Default nodeSelector for build pods (overridable per-site via spec.build.nodeSelector)
   tolerations: []       # Default tolerations for build pods (overridable per-site via spec.build.tolerations)
 
-# nginx Ingress controller — fronts the redirect service with a cloud LoadBalancer.
-# Deployed as a subchart (ingress-nginx). Set enabled: true to install it.
-# All AWS NLB / EIP annotations go under service.annotations — nothing is hardcoded.
-#
-# Example for AWS NLB with EIP allocations:
-#   ingressNginx:
-#     enabled: true
-#     controller:
-#       service:
-#         annotations:
-#           service.beta.kubernetes.io/aws-load-balancer-type: external
-#           service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
-#           service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
-#           service.beta.kubernetes.io/aws-load-balancer-eip-allocations: "eipalloc-xxx,eipalloc-yyy,eipalloc-zzz"
-# ingress-nginx subchart — fronts the redirect service with a cloud LoadBalancer.
-# Requires cert-manager installed cluster-wide (not managed by this chart).
-# Set namespaceOverride to deploy the controller to a dedicated namespace.
+# ── Apex Redirect ────────────────────────────────────────────────────────────
+# Prerequisites (not managed by this chart):
+#   cert-manager must be installed cluster-wide:
+#     helm install cert-manager jetstack/cert-manager \
+#       -n cert-manager --create-namespace --set crds.enabled=true
+
+# Application-level redirect config
+redirect:
+  namespace: "deco-redirect-system"
+  ingressClass: "redirect-nginx"
+  clusterIssuer:
+    enabled: false          # set true to create the Let's Encrypt ClusterIssuer
+    name: "letsencrypt"
+    email: ""               # required by Let's Encrypt ACME — set in prod values
+    staging: false          # set true to use Let's Encrypt staging (avoids rate limits when testing)
+
+# ingress-nginx subchart (opt-in) — set enabled: true to deploy nginx alongside the operator.
+# namespaceOverride isolates nginx from the operator namespace.
+# AWS NLB/EIP annotations go under controller.service.annotations.
 ingress-nginx:
   enabled: false
-  namespaceOverride: ""   # e.g. "deco-redirect-system" to isolate from operator namespace
+  namespaceOverride: "deco-redirect-system"
   controller:
     ingressClass: redirect-nginx
     ingressClassResource:
@@ -142,22 +144,9 @@ ingress-nginx:
     service:
       annotations: {}
 
-# cert-manager — must be installed cluster-wide before enabling redirect features.
-# This chart does NOT install cert-manager. Install it separately:
-#   helm install cert-manager jetstack/cert-manager -n cert-manager --create-namespace --set crds.enabled=true
-# certManager.enabled controls whether the operator's own webhook Certificate and Issuer are rendered.
+# certManager.enabled gates the operator's own webhook TLS resources — keep true.
 certManager:
-  enabled: true   # keep true — gates operator webhook TLS resources, not cert-manager installation
-
-# Redirect — all application-level redirect config in one place.
-redirect:
-  namespace: "deco-redirect-system"   # namespace for nginx and redirect resources
-  ingressClass: "redirect-nginx"       # IngressClass used by RedirectDomain Ingresses
-  clusterIssuer:
-    enabled: false                    # set true to create the Let's Encrypt ClusterIssuer
-    name: "letsencrypt"               # ClusterIssuer name referenced by RedirectDomain certs
-    email: ""                         # required by Let's Encrypt ACME — set in prod values
-    staging: false                    # set true to use staging (avoids rate limits when testing)
+  enabled: true
 
 # Name overrides
 nameOverride: ""
