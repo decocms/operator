@@ -120,14 +120,15 @@ build:
 #     helm install cert-manager jetstack/cert-manager \
 #       -n cert-manager --create-namespace --set crds.enabled=true
 
-# Application-level redirect config
+# Application-level redirect config — all features are opt-in.
+# Set ingressClass to enable RedirectDomain reconciliation.
 redirect:
   namespace: "deco-redirect-system"
-  ingressClass: "redirect-nginx"
+  ingressClass: ""          # set to enable RedirectDomain controller (e.g. "redirect-nginx")
   clusterIssuer:
     enabled: false          # set true to create the Let's Encrypt ClusterIssuer
-    name: "letsencrypt"
-    email: ""               # required by Let's Encrypt ACME — set in prod values
+    name: ""                # ClusterIssuer name (e.g. "letsencrypt")
+    email: ""               # required by Let's Encrypt ACME
     staging: false          # set true to use Let's Encrypt staging (avoids rate limits when testing)
 
 # ingress-nginx subchart (opt-in) — set enabled: true to deploy nginx alongside the operator.
