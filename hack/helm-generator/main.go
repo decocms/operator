@@ -346,7 +346,7 @@ metadata:
 
 
 func addRedirectNamespace(templatesDir string) error {
-	content := `{{- if or (index .Values "ingress-nginx" "enabled") .Values.certManager.install }}
+	content := `{{- if (index .Values "ingress-nginx" "enabled") }}
 apiVersion: v1
 kind: Namespace
 metadata:

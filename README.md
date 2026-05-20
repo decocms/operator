@@ -95,6 +95,52 @@ kubectl logs -n operator-system -l control-plane=controller-manager -f
 - cert-manager (for webhook TLS)
 - Knative Serving (for injection features)
 
+### Apex Redirect (RedirectDomain)
+
+The `RedirectDomain` CRD manages TLS-terminated apex redirects (`client.com → https://www.client.com`) via cert-manager and nginx Ingress.
+
+**Required cluster dependencies (not managed by this chart):**
+
+1. **cert-manager** — issues TLS certificates via Let's Encrypt. Install cluster-wide before enabling redirect features:
+   ```bash
+   helm install cert-manager jetstack/cert-manager \
+     --namespace cert-manager --create-namespace \
+     --set crds.enabled=true --wait
+   ```
+
+2. **ingress-nginx** — the chart includes ingress-nginx as an opt-in subchart (`ingress-nginx.enabled: true`). It deploys to `redirect.namespace` (`deco-redirect-system` by default) via `namespaceOverride`. You can also bring your own nginx installation.
+
+**Example values for production:**
+```yaml
+ingress-nginx:
+  enabled: true
+  namespaceOverride: "deco-redirect-system"
+  controller:
+    service:
+      annotations:
+        service.beta.kubernetes.io/aws-load-balancer-type: external
+        service.beta.kubernetes.io/aws-load-balancer-eip-allocations: "eipalloc-xxx,eipalloc-yyy"
+
+redirect:
+  ingressClass: redirect-nginx
+  clusterIssuer:
+    enabled: true
+    name: letsencrypt
+    email: ops@example.com
+```
+
+Then create a redirect:
+```yaml
+apiVersion: deco.sites/v1alpha1
+kind: RedirectDomain
+metadata:
+  name: client-com
+  namespace: redirect
+spec:
+  from: "client.com"
+  to: "https://www.client.com"
+```
+
 See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment options, [HELM.md](HELM.md) for complete Helm documentation, and [docs/RELOAD_AUTHENTICATION.md](docs/RELOAD_AUTHENTICATION.md) for securing reload endpoints.
 
 ## Usage
