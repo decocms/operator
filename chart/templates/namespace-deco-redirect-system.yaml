@@ -1,4 +1,4 @@
-{{- if or .Values.ingressNginx.enabled .Values.certManager.install }}
+{{- if or (index .Values "ingress-nginx" "enabled") .Values.certManager.install }}
 apiVersion: v1
 kind: Namespace
 metadata:
