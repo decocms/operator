@@ -69,18 +69,18 @@ type BuildSecretsReconciler struct {
 func (r *BuildSecretsReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx).WithName("buildsecrets").WithValues("namespace", req.Name)
 
-	if !strings.HasPrefix(req.Name, siteNamespacePrefix) {
+	// Derive site from namespace by stripping the `sites-` prefix. We do NOT
+	// reuse siteNameFromNamespace from namespace_controller.go because that
+	// helper also filters out Valkey-reserved usernames ("default",
+	// "redis-root"), which has no bearing on build-secrets reconciliation.
+	site := strings.TrimPrefix(req.Name, siteNamespacePrefix)
+	if site == req.Name || site == "" {
 		return ctrl.Result{}, nil
 	}
 
 	ns := &corev1.Namespace{}
 	if err := r.Get(ctx, req.NamespacedName, ns); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-
-	site := siteNameFromNamespace(ns.Name)
-	if site == "" {
-		return ctrl.Result{}, nil
 	}
 
 	optedIn := ns.Annotations[buildSecretsAnnotation] == buildSecretsAnnotationValue
