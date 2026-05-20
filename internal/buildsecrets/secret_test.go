@@ -46,10 +46,12 @@ func newClient(t *testing.T, objs ...client.Object) client.Client {
 	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
 }
 
-func getSecret(t *testing.T, c client.Client, namespace string) *corev1.Secret {
+const testNamespace = "sites-acme"
+
+func getSecret(t *testing.T, c client.Client) *corev1.Secret {
 	t.Helper()
 	got := &corev1.Secret{}
-	if err := c.Get(context.Background(), types.NamespacedName{Name: SecretName, Namespace: namespace}, got); err != nil {
+	if err := c.Get(context.Background(), types.NamespacedName{Name: SecretName, Namespace: testNamespace}, got); err != nil {
 		t.Fatalf("get secret: %v", err)
 	}
 	return got
@@ -63,7 +65,7 @@ func TestSyncCreatesWhenUpstreamExists(t *testing.T) {
 		t.Fatalf("Sync: %v", err)
 	}
 
-	got := getSecret(t, c, "sites-acme")
+	got := getSecret(t, c)
 	if string(got.Data["DENO_AUTH_TOKENS"]) != "github_pat_xxx@raw.githubusercontent.com" {
 		t.Fatalf("data not written: %v", got.Data)
 	}
@@ -106,7 +108,7 @@ func TestSyncUpdatesOnDrift(t *testing.T) {
 		t.Fatalf("Sync: %v", err)
 	}
 
-	got := getSecret(t, c, "sites-acme")
+	got := getSecret(t, c)
 	if _, ok := got.Data["OLD"]; ok {
 		t.Fatal("old key not removed")
 	}
@@ -135,7 +137,7 @@ func TestSyncIdempotentWhenDataMatches(t *testing.T) {
 		t.Fatalf("Sync: %v", err)
 	}
 
-	got := getSecret(t, c, "sites-acme")
+	got := getSecret(t, c)
 	if got.ResourceVersion != "999" {
 		t.Fatalf("ResourceVersion changed (write should have been skipped): %s", got.ResourceVersion)
 	}
@@ -183,7 +185,7 @@ func TestSyncRefusesUnownedSecret(t *testing.T) {
 		t.Fatalf("expected ErrNotOwned, got %v", err)
 	}
 
-	got := getSecret(t, c, "sites-acme")
+	got := getSecret(t, c)
 	if string(got.Data["USER_TOKEN"]) != "hand-crafted" {
 		t.Fatalf("unowned secret data was mutated: %v", got.Data)
 	}
@@ -231,7 +233,7 @@ func TestRemoveRefusesUnowned(t *testing.T) {
 	}
 
 	// Secret still there
-	got := getSecret(t, c, "sites-acme")
+	got := getSecret(t, c)
 	if got.Name != SecretName {
 		t.Fatal("unowned secret was deleted")
 	}
