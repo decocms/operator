@@ -31,9 +31,8 @@ type RedirectDomainReconciler struct {
 	ClusterIssuer string // cert-manager ClusterIssuer name, e.g. "letsencrypt"
 }
 
-// dummyBackendName is referenced by every RedirectDomain Ingress to satisfy the k8s API
-// schema requirement for a backend. nginx never routes to it because permanent-redirect
-// intercepts first. The Service does not need to exist.
+// dummyBackendName satisfies the k8s Ingress API requirement for a backend on every path.
+// nginx never routes to it because permanent-redirect intercepts first.
 const dummyBackendName = "redirect-dummy-backend"
 
 // +kubebuilder:rbac:groups=deco.sites,resources=redirectdomains,verbs=get;list;watch;create;update;patch;delete
@@ -108,7 +107,7 @@ func (r *RedirectDomainReconciler) reconcileIngress(ctx context.Context, rd *dec
 		return err
 	}
 
-	// nginx returns 301 directly via this annotation — no traffic reaches the dummy backend.
+	// nginx returns 301 via the permanent-redirect annotation before reaching any backend.
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, ingress, func() error {
 		ingress.Annotations = map[string]string{
 			"nginx.ingress.kubernetes.io/permanent-redirect": rd.Spec.To,
