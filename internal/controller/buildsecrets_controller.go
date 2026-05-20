@@ -12,10 +12,11 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -31,48 +32,55 @@ import (
 const (
 	buildSecretsAnnotation      = "deco.sites/build-secrets-managed"
 	buildSecretsAnnotationValue = "enabled"
+
+	// DefaultBuildSecretsResyncPeriod is the safety-net interval at which
+	// the reconciler re-fetches the upstream backend even when nothing
+	// changed in the cluster — picks up out-of-band edits to AWS Secrets
+	// Manager. Configurable via BUILD_SECRETS_RESYNC_PERIOD.
+	DefaultBuildSecretsResyncPeriod = 15 * time.Minute
 )
 
-// +kubebuilder:rbac:groups=external-secrets.io,resources=externalsecrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 
-// BuildSecretsReconciler keeps an ExternalSecret in sync with each
-// opted-in site namespace. Opt-in is the annotation
-// `deco.sites/build-secrets-managed: enabled` on the Namespace.
+// BuildSecretsReconciler keeps the K8s Secret `build-secrets` in each
+// opted-in site namespace aligned with the upstream backend (AWS
+// Secrets Manager today; see buildsecrets.Source for the abstraction).
 //
-// Removing the annotation (or deleting the Namespace) deletes the EE,
-// which cascades into the K8s Secret via ESO's `creationPolicy: Owner`.
-// Builds revert silently because admin's envFrom is `optional: true`.
+// Opt-in is the annotation `deco.sites/build-secrets-managed: enabled`
+// on the Namespace. The reconciler is fully event-driven (no polling)
+// but requeues at ResyncPeriod as a safety net for upstream edits the
+// operator did not observe (manual aws CLI rotation, etc.).
 //
-// # Force sync recipes
+// # State machine
 //
-// Re-fetch ONE site from AWS Secrets Manager immediately, without
-// waiting for the EE's refreshInterval:
+//	annotation off       → ensure no operator-managed Secret exists
+//	annotation on, no upstream → no Secret (status: upstream-missing)
+//	annotation on, upstream    → Secret created/updated with data
 //
-//	kubectl annotate es build-secrets -n sites-<site> \
-//	  force-sync=$(date +%s) --overwrite
+// # Force-sync recipes
+//
+// Re-fetch ONE site from the upstream immediately (instead of waiting
+// for ResyncPeriod):
+//
+//	kubectl annotate ns sites-<site> \
+//	  deco.sites/build-secrets-sync=$(date +%s) --overwrite
 //
 // Re-fetch ALL managed sites at once:
-//
-//	kubectl get es -A -l deco.sites/feature=build-secrets -o name \
-//	  | xargs -I{} kubectl annotate {} force-sync=$(date +%s) --overwrite
-//
-// Bump the operator (re-applies the EE spec template across all
-// managed namespaces — use after editing this controller):
 //
 //	kubectl annotate ns -l deco.sites/build-secrets-managed=enabled \
 //	  deco.sites/build-secrets-sync=$(date +%s) --overwrite
 type BuildSecretsReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme       *runtime.Scheme
+	Source       buildsecrets.Source
+	ResyncPeriod time.Duration
 }
 
 func (r *BuildSecretsReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx).WithName("buildsecrets").WithValues("namespace", req.Name)
 
-	// Derive site from namespace by stripping the `sites-` prefix. We do NOT
-	// reuse siteNameFromNamespace from namespace_controller.go because that
-	// helper also filters out Valkey-reserved usernames ("default",
-	// "redis-root"), which has no bearing on build-secrets reconciliation.
+	// Strip the `sites-` prefix inline; we deliberately avoid the
+	// valkey-specific helper that filters reserved usernames.
 	site := strings.TrimPrefix(req.Name, siteNamespacePrefix)
 	if site == req.Name || site == "" {
 		return ctrl.Result{}, nil
@@ -86,23 +94,29 @@ func (r *BuildSecretsReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	optedIn := ns.Annotations[buildSecretsAnnotation] == buildSecretsAnnotationValue
 	if !optedIn || !ns.DeletionTimestamp.IsZero() {
 		if err := buildsecrets.Remove(ctx, r.Client, ns.Name); err != nil {
+			if errors.Is(err, buildsecrets.ErrNotOwned) {
+				log.Info("Secret exists without operator labels — leaving it alone", "site", site)
+				return ctrl.Result{}, nil
+			}
 			return ctrl.Result{}, err
 		}
-		log.V(1).Info("ExternalSecret removed", "site", site)
 		return ctrl.Result{}, nil
 	}
 
-	if err := buildsecrets.Ensure(ctx, r.Client, ns.Name, site); err != nil {
+	if err := buildsecrets.Sync(ctx, r.Client, ns.Name, site, r.Source); err != nil {
+		if errors.Is(err, buildsecrets.ErrNotOwned) {
+			log.Info("Skipping unowned Secret build-secrets — operator will not adopt it", "site", site)
+			return ctrl.Result{RequeueAfter: r.ResyncPeriod}, nil
+		}
 		return ctrl.Result{}, err
 	}
-	log.V(1).Info("ExternalSecret ensured", "site", site)
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: r.ResyncPeriod}, nil
 }
 
 func (r *BuildSecretsReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	// Map ExternalSecret events back to the parent Namespace so deletions
-	// or out-of-band edits trigger a re-reconcile that restores the spec.
-	esToNamespace := handler.EnqueueRequestsFromMapFunc(
+	// Map Secret events back to the parent Namespace so deletions or
+	// out-of-band edits trigger a re-reconcile that restores state.
+	secretToNamespace := handler.EnqueueRequestsFromMapFunc(
 		func(_ context.Context, obj client.Object) []reconcile.Request {
 			if obj.GetName() != buildsecrets.SecretName {
 				return nil
@@ -113,13 +127,10 @@ func (r *BuildSecretsReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		},
 	)
 
-	es := &unstructured.Unstructured{}
-	es.SetGroupVersionKind(buildsecrets.GVK)
-
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("buildsecrets").
 		For(&corev1.Namespace{}).
-		Watches(es, esToNamespace).
+		Watches(&corev1.Secret{}, secretToNamespace).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 4}).
 		Complete(r)
 }

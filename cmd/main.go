@@ -46,6 +46,7 @@ import (
 
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
 	"github.com/deco-sites/decofile-operator/internal/build"
+	"github.com/deco-sites/decofile-operator/internal/buildsecrets"
 	"github.com/deco-sites/decofile-operator/internal/controller"
 	"github.com/deco-sites/decofile-operator/internal/valkey"
 	webhookv1 "github.com/deco-sites/decofile-operator/internal/webhook/v1"
@@ -81,6 +82,8 @@ func main() {
 	var valkeyAdminPassword string
 	var valkeyResyncPeriod time.Duration
 	var valkeyWatchFailover bool
+	var buildSecretsBackend string
+	var buildSecretsResyncPeriod time.Duration
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -114,6 +117,12 @@ func main() {
 		os.Getenv("VALKEY_WATCH_FAILOVER") != "false",
 		"Subscribe to Sentinel +switch-master events and trigger immediate ACL resync on failover. "+
 			"Enabled by default when VALKEY_SENTINEL_URLS is set. Set VALKEY_WATCH_FAILOVER=false to disable.")
+	flag.StringVar(&buildSecretsBackend, "build-secrets-backend",
+		getEnvOrDefault("BUILD_SECRETS_BACKEND", "aws"),
+		"Backend for tenant build-secrets sync. Supported: aws | disabled.")
+	flag.DurationVar(&buildSecretsResyncPeriod, "build-secrets-resync-period",
+		parseDuration(os.Getenv("BUILD_SECRETS_RESYNC_PERIOD"), controller.DefaultBuildSecretsResyncPeriod),
+		"How often to re-fetch upstream build-secrets even when nothing changed in the cluster.")
 	opts := zap.Options{
 		Development: false,
 	}
@@ -268,13 +277,25 @@ func main() {
 		os.Exit(1)
 	}
 
-	bsReconciler := &controller.BuildSecretsReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}
-	if err := bsReconciler.SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "BuildSecrets")
+	buildSecretsSource, err := newBuildSecretsSource(context.Background(), buildSecretsBackend)
+	if err != nil {
+		setupLog.Error(err, "unable to initialize build-secrets source", "backend", buildSecretsBackend)
 		os.Exit(1)
+	}
+	if buildSecretsSource != nil {
+		bsReconciler := &controller.BuildSecretsReconciler{
+			Client:       mgr.GetClient(),
+			Scheme:       mgr.GetScheme(),
+			Source:       buildSecretsSource,
+			ResyncPeriod: buildSecretsResyncPeriod,
+		}
+		if err := bsReconciler.SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "BuildSecrets")
+			os.Exit(1)
+		}
+		setupLog.Info("Build-secrets sync enabled", "backend", buildSecretsBackend, "resyncPeriod", buildSecretsResyncPeriod)
+	} else {
+		setupLog.Info("Build-secrets sync disabled (BUILD_SECRETS_BACKEND=disabled)")
 	}
 
 	// Start Sentinel failover watcher if enabled and Sentinel is configured.
@@ -420,4 +441,19 @@ func getEnvOrDefault(key, defaultVal string) string {
 		return v
 	}
 	return defaultVal
+}
+
+// newBuildSecretsSource picks an upstream secret backend for the
+// BuildSecretsReconciler. `disabled` returns (nil, nil) so callers can
+// skip wiring the reconciler entirely — useful for local dev and for
+// clusters where this feature is not yet enabled.
+func newBuildSecretsSource(ctx context.Context, backend string) (buildsecrets.Source, error) {
+	switch backend {
+	case "aws":
+		return buildsecrets.NewAWSSource(ctx)
+	case "disabled", "":
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("unknown build-secrets backend %q (supported: aws | disabled)", backend)
+	}
 }

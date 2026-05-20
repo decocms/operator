@@ -7,6 +7,7 @@ rules:
   - ""
   resources:
   - configmaps
+  - secrets
   verbs:
   - create
   - delete
@@ -30,15 +31,6 @@ rules:
   resources:
   - pods
   verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - create
   - get
   - list
   - watch
@@ -91,18 +83,6 @@ rules:
   - get
   - patch
   - update
-- apiGroups:
-  - external-secrets.io
-  resources:
-  - externalsecrets
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
 - apiGroups:
   - serving.knative.dev
   resources:
