@@ -140,12 +140,9 @@ ingress-nginx:
     service:
       annotations: {}
 
-# cert-manager must be installed cluster-wide (required by this operator for webhook TLS).
+# cert-manager must be installed cluster-wide (required when webhook.enabled=true).
 # Install separately: helm install cert-manager jetstack/cert-manager \
 #   -n cert-manager --create-namespace --set crds.enabled=true
-# certManager.enabled gates the operator's own webhook Certificate and Issuer — keep true.
-certManager:
-  enabled: true
 
 # Name overrides
 nameOverride: ""
