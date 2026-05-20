@@ -68,7 +68,7 @@ spec:
             x-kubernetes-validations:
             - message: 'redirect target must be within the same domain as ''from''
                 (e.g. from: client.com → to: https://www.client.com)'
-              rule: self.to.contains('.'+self.from) || self.to.contains('//'+self.from)
+              rule: (self.to+'/').contains('.'+self.from+'/') || (self.to+'/').contains('//'+self.from+'/')
           status:
             description: RedirectDomainStatus defines the observed state of RedirectDomain.
             properties:

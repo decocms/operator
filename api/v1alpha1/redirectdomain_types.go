@@ -7,7 +7,7 @@ const (
 )
 
 // RedirectDomainSpec defines the desired state of RedirectDomain.
-// +kubebuilder:validation:XValidation:rule="self.to.contains('.'+self.from) || self.to.contains('//'+self.from)",message="redirect target must be within the same domain as 'from' (e.g. from: client.com → to: https://www.client.com)"
+// +kubebuilder:validation:XValidation:rule="(self.to+'/').contains('.'+self.from+'/') || (self.to+'/').contains('//'+self.from+'/')",message="redirect target must be within the same domain as 'from' (e.g. from: client.com → to: https://www.client.com)"
 type RedirectDomainSpec struct {
 	// From is the apex domain to redirect (e.g. "client.com").
 	// +kubebuilder:validation:Required

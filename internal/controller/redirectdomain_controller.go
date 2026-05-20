@@ -2,12 +2,15 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"strings"
 	"time"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -150,7 +153,11 @@ func (r *RedirectDomainReconciler) reconcileIngress(ctx context.Context, rd *dec
 func (r *RedirectDomainReconciler) updateStatus(ctx context.Context, rd *decositesv1alpha1.RedirectDomain) (bool, error) {
 	certReady := false
 	cert := &cmv1.Certificate{}
-	if err := r.Get(ctx, types.NamespacedName{Name: resourceName(rd.Spec.From), Namespace: rd.Namespace}, cert); err == nil {
+	if err := r.Get(ctx, types.NamespacedName{Name: resourceName(rd.Spec.From), Namespace: rd.Namespace}, cert); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return false, err
+		}
+	} else {
 		for _, c := range cert.Status.Conditions {
 			if c.Type == cmv1.CertificateConditionReady && c.Status == cmmeta.ConditionTrue {
 				certReady = true
@@ -179,15 +186,28 @@ func (r *RedirectDomainReconciler) updateStatus(ctx context.Context, rd *decosit
 	return certReady, r.Status().Patch(ctx, patch, client.MergeFrom(rd))
 }
 
-// resourceName returns a deterministic k8s-safe name for a domain.
+// resourceName returns a deterministic k8s-safe name for a domain, capped at 253 chars.
 // "client.com" → "redirect-client-com"
 func resourceName(domain string) string {
-	return "redirect-" + sanitizeDomain(domain)
+	return boundedName("redirect-", domain)
 }
 
-// tlsSecretName returns the TLS Secret name for a domain.
+// tlsSecretName returns the TLS Secret name for a domain, capped at 253 chars.
 func tlsSecretName(domain string) string {
-	return "tls-" + sanitizeDomain(domain)
+	return boundedName("tls-", domain)
+}
+
+// boundedName builds "<prefix><sanitized-domain>", truncating to 253 chars by replacing the
+// suffix with an 8-hex-char hash when the full name would exceed the Kubernetes limit.
+func boundedName(prefix, domain string) string {
+	full := prefix + sanitizeDomain(domain)
+	if len(full) <= 253 {
+		return full
+	}
+	h := fmt.Sprintf("%x", sha256.Sum256([]byte(domain)))[:8]
+	// keep as many chars of the sanitized domain as fit, then append the hash
+	max := 253 - len(prefix) - 1 - 8 // 1 for the dash separator
+	return prefix + sanitizeDomain(domain)[:max] + "-" + h
 }
 
 // sanitizeDomain replaces dots and underscores with dashes.

@@ -399,6 +399,9 @@ func addRedirectControllerArgs(templatesDir string) error {
         {{- end }}`
 
 	anchor := `        - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs`
+	if !strings.Contains(string(content), anchor) {
+		return fmt.Errorf("anchor %q not found in %s", anchor, deploymentFile)
+	}
 	contentStr := strings.Replace(string(content), anchor, anchor+"\n"+args, 1)
 	return os.WriteFile(deploymentFile, []byte(contentStr), 0644)
 }
