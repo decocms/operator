@@ -115,11 +115,6 @@ build:
   tolerations: []       # Default tolerations for build pods (overridable per-site via spec.build.tolerations)
 
 # ── Apex Redirect ────────────────────────────────────────────────────────────
-# Prerequisites (not managed by this chart):
-#   cert-manager must be installed cluster-wide:
-#     helm install cert-manager jetstack/cert-manager \
-#       -n cert-manager --create-namespace --set crds.enabled=true
-
 # Application-level redirect config — all features are opt-in.
 # Set ingressClass to enable RedirectDomain reconciliation.
 redirect:
@@ -145,7 +140,10 @@ ingress-nginx:
     service:
       annotations: {}
 
-# certManager.enabled gates the operator's own webhook TLS resources — keep true.
+# cert-manager must be installed cluster-wide (required by this operator for webhook TLS).
+# Install separately: helm install cert-manager jetstack/cert-manager \
+#   -n cert-manager --create-namespace --set crds.enabled=true
+# certManager.enabled gates the operator's own webhook Certificate and Issuer — keep true.
 certManager:
   enabled: true
 
