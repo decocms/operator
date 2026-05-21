@@ -438,7 +438,7 @@ func addOperatorAPIEnvVars(templatesDir string) error {
 	// Extend the outer conditional to include operatorApi credentials
 	content = []byte(strings.Replace(string(content),
 		`{{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret))`,
-		`{{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) .Values.operatorApi.existingSecret (and .Values.operatorApi.username .Values.operatorApi.password)`,
+		`{{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) .Values.operatorApi.existingSecret`,
 		1))
 
 	envVars := `        {{- if .Values.operatorApi.existingSecret }}
@@ -452,15 +452,10 @@ func addOperatorAPIEnvVars(templatesDir string) error {
             secretKeyRef:
               name: {{ .Values.operatorApi.existingSecret | quote }}
               key: OPERATOR_API_PASSWORD
-        {{- else if and .Values.operatorApi.username .Values.operatorApi.password }}
-        - name: OPERATOR_API_USER
-          value: {{ .Values.operatorApi.username | quote }}
-        - name: OPERATOR_API_PASSWORD
-          value: {{ .Values.operatorApi.password | quote }}
-        {{- end }}
         {{- if .Values.operatorApi.addr }}
         - name: OPERATOR_API_ADDR
           value: {{ .Values.operatorApi.addr | quote }}
+        {{- end }}
         {{- end }}`
 
 	// Inject just before livenessProbe — unique anchor outside all nested blocks
@@ -471,7 +466,7 @@ func addOperatorAPIEnvVars(templatesDir string) error {
 }
 
 func addOperatorAPIService(templatesDir string) error {
-	content := `{{- if or .Values.operatorApi.existingSecret (and .Values.operatorApi.username .Values.operatorApi.password) }}
+	content := `{{- if .Values.operatorApi.existingSecret }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -491,7 +486,7 @@ spec:
 }
 
 func addOperatorAPIIngress(templatesDir string) error {
-	content := `{{- if and .Values.operatorApi.hostname (or .Values.operatorApi.existingSecret (and .Values.operatorApi.username .Values.operatorApi.password)) }}
+	content := `{{- if and .Values.operatorApi.hostname .Values.operatorApi.existingSecret }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

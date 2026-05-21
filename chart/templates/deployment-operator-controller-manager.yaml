@@ -41,7 +41,7 @@ spec:
         command:
         - /manager
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) .Values.operatorApi.existingSecret (and .Values.operatorApi.username .Values.operatorApi.password) (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret .Values.cfworkers.builderImage .Values.cfworkers.artifactsBucket .Values.s3.region .Values.s3.logsBucket .Values.s3.stateBucket .Values.build.serviceAccount .Values.build.roleArn .Values.build.nodeSelector .Values.build.tolerations }}
+        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) .Values.operatorApi.existingSecret (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret .Values.cfworkers.builderImage .Values.cfworkers.artifactsBucket .Values.s3.region .Values.s3.logsBucket .Values.s3.stateBucket .Values.build.serviceAccount .Values.build.roleArn .Values.build.nodeSelector .Values.build.tolerations }}
         env:
         {{- if and .Values.github .Values.github.existingSecret }}
         - name: GITHUB_TOKEN
@@ -136,15 +136,10 @@ spec:
             secretKeyRef:
               name: {{ .Values.operatorApi.existingSecret | quote }}
               key: OPERATOR_API_PASSWORD
-        {{- else if and .Values.operatorApi.username .Values.operatorApi.password }}
-        - name: OPERATOR_API_USER
-          value: {{ .Values.operatorApi.username | quote }}
-        - name: OPERATOR_API_PASSWORD
-          value: {{ .Values.operatorApi.password | quote }}
-        {{- end }}
         {{- if .Values.operatorApi.addr }}
         - name: OPERATOR_API_ADDR
           value: {{ .Values.operatorApi.addr | quote }}
+        {{- end }}
         {{- end }}
         {{- end }}
         livenessProbe:

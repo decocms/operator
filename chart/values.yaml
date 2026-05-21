@@ -125,8 +125,6 @@ operatorApi:
   hostname: ""           # e.g. "api.infra.deco.cx" — creates Ingress+Certificate automatically
   ingressClass: ""       # leave empty to use the cluster default ingress (recommended)
   clusterIssuer: ""      # cert-manager ClusterIssuer; defaults to redirect.clusterIssuer.name if empty
-  username: ""           # inline (dev only)
-  password: ""
   existingSecret: ""     # Secret with keys OPERATOR_API_USER and OPERATOR_API_PASSWORD
 
 # ── Domain Redirect ──────────────────────────────────────────────────────────

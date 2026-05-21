@@ -1,4 +1,4 @@
-{{- if and .Values.operatorApi.hostname (or .Values.operatorApi.existingSecret (and .Values.operatorApi.username .Values.operatorApi.password)) }}
+{{- if and .Values.operatorApi.hostname .Values.operatorApi.existingSecret }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

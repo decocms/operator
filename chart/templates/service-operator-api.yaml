@@ -1,4 +1,4 @@
-{{- if or .Values.operatorApi.existingSecret (and .Values.operatorApi.username .Values.operatorApi.password) }}
+{{- if .Values.operatorApi.existingSecret }}
 apiVersion: v1
 kind: Service
 metadata:
