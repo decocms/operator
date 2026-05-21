@@ -1,0 +1,20 @@
+{{- if .Values.redirect.clusterIssuer.enabled }}
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Values.redirect.clusterIssuer.name }}
+spec:
+  acme:
+    {{- if .Values.redirect.clusterIssuer.staging }}
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    {{- else }}
+    server: https://acme-v02.api.letsencrypt.org/directory
+    {{- end }}
+    email: {{ required "redirect.clusterIssuer.email is required when redirect.clusterIssuer.enabled=true" .Values.redirect.clusterIssuer.email }}
+    privateKeySecretRef:
+      name: letsencrypt-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: {{ .Values.redirect.ingressClass }}
+{{- end }}

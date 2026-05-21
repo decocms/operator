@@ -1,0 +1,6 @@
+{{- if (index .Values "ingress-nginx" "enabled") }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.redirect.namespace }}
+{{- end }}

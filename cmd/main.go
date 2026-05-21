@@ -42,6 +42,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	servingknativedevv1 "knative.dev/serving/pkg/apis/serving/v1"
 
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
@@ -62,6 +63,7 @@ func init() {
 
 	utilruntime.Must(decositesv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(servingknativedevv1.AddToScheme(scheme))
+	utilruntime.Must(cmv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -114,6 +116,15 @@ func main() {
 		os.Getenv("VALKEY_WATCH_FAILOVER") != "false",
 		"Subscribe to Sentinel +switch-master events and trigger immediate ACL resync on failover. "+
 			"Enabled by default when VALKEY_SENTINEL_URLS is set. Set VALKEY_WATCH_FAILOVER=false to disable.")
+
+	var redirectIngressClass string
+	var redirectClusterIssuer string
+	flag.StringVar(&redirectIngressClass, "redirect-ingress-class",
+		getEnvOrDefault("REDIRECT_INGRESS_CLASS", "nginx"),
+		"IngressClass name for RedirectDomain Ingress resources.")
+	flag.StringVar(&redirectClusterIssuer, "redirect-cluster-issuer",
+		getEnvOrDefault("REDIRECT_CLUSTER_ISSUER", "letsencrypt"),
+		"cert-manager ClusterIssuer name (matches redirect.clusterIssuer.name in values).")
 	opts := zap.Options{
 		Development: false,
 	}
@@ -343,6 +354,15 @@ func main() {
 		BuilderSAAnnotations: builderSAAnnotations,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Deco")
+		os.Exit(1)
+	}
+	if err := (&controller.RedirectDomainReconciler{
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		IngressClass:  redirectIngressClass,
+		ClusterIssuer: redirectClusterIssuer,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "RedirectDomain")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

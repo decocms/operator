@@ -98,6 +98,17 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Warning: Could not add pod annotations to deployment: %v\n", err)
 	}
 
+	// Add redirect infrastructure templates
+	if err := addRedirectNamespace(templatesDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect namespace: %v\n", err)
+	}
+	if err := addClusterIssuer(templatesDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not add ClusterIssuer: %v\n", err)
+	}
+	if err := addRedirectControllerArgs(templatesDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect controller args: %v\n", err)
+	}
+
 	fmt.Printf("✓ Generated %d Helm templates\n\n", fileCount)
 	fmt.Println("Test with:")
 	fmt.Println("  make helm-lint")
@@ -331,4 +342,66 @@ metadata:
 {{- end }}
 `
 	return os.WriteFile(filepath.Join(templatesDir, "serviceaccount-builder.yaml"), []byte(content), 0644)
+}
+
+
+func addRedirectNamespace(templatesDir string) error {
+	content := `{{- if (index .Values "ingress-nginx" "enabled") }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.redirect.namespace }}
+{{- end }}
+`
+	return os.WriteFile(filepath.Join(templatesDir, "namespace-deco-redirect-system.yaml"), []byte(content), 0644)
+}
+
+func addClusterIssuer(templatesDir string) error {
+	content := `{{- if .Values.redirect.clusterIssuer.enabled }}
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Values.redirect.clusterIssuer.name }}
+spec:
+  acme:
+    {{- if .Values.redirect.clusterIssuer.staging }}
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    {{- else }}
+    server: https://acme-v02.api.letsencrypt.org/directory
+    {{- end }}
+    email: {{ required "redirect.clusterIssuer.email is required when redirect.clusterIssuer.enabled=true" .Values.redirect.clusterIssuer.email }}
+    privateKeySecretRef:
+      name: letsencrypt-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: {{ .Values.redirect.ingressClass }}
+{{- end }}
+`
+	return os.WriteFile(filepath.Join(templatesDir, "clusterissuer-letsencrypt.yaml"), []byte(content), 0644)
+}
+
+func addRedirectControllerArgs(templatesDir string) error {
+	files, err := filepath.Glob(filepath.Join(templatesDir, "deployment-*.yaml"))
+	if err != nil || len(files) == 0 {
+		return fmt.Errorf("no deployment file found")
+	}
+
+	deploymentFile := files[0]
+	content, err := os.ReadFile(deploymentFile)
+	if err != nil {
+		return err
+	}
+
+	args := `        {{- if .Values.redirect.ingressClass }}
+        - --redirect-ingress-class={{ .Values.redirect.ingressClass }}
+        - --redirect-cluster-issuer={{ .Values.redirect.clusterIssuer.name }}
+        {{- end }}`
+
+	anchor := `        - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs`
+	if !strings.Contains(string(content), anchor) {
+		return fmt.Errorf("anchor %q not found in %s", anchor, deploymentFile)
+	}
+	contentStr := strings.Replace(string(content), anchor, anchor+"\n"+args, 1)
+	return os.WriteFile(deploymentFile, []byte(contentStr), 0644)
 }

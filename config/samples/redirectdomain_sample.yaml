@@ -1,0 +1,8 @@
+apiVersion: deco.sites/v1alpha1
+kind: RedirectDomain
+metadata:
+  name: example-redirect
+  namespace: deco-redirect-system
+spec:
+  from: "client.com"
+  to: "https://www.client.com"
