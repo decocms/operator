@@ -1,4 +1,4 @@
-{{- if .Values.operatorApi.hostname }}
+{{- if and .Values.operatorApi.hostname (or .Values.operatorApi.existingSecret (and .Values.operatorApi.username .Values.operatorApi.password)) }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -14,7 +14,7 @@ spec:
   tls:
     - hosts:
         - {{ .Values.operatorApi.hostname }}
-      secretName: operator-api-tls
+      secretName: {{ .Release.Name }}-operator-api-tls
   rules:
     - host: {{ .Values.operatorApi.hostname }}
       http:

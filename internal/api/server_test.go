@@ -16,17 +16,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func newTestServer(t *testing.T) (*api.Server, *fake.ClientBuilder) {
-	t.Helper()
-	scheme := runtime.NewScheme()
-	_ = clientgoscheme.AddToScheme(scheme)
-	_ = decositesv1alpha1.AddToScheme(scheme)
-	cb := fake.NewClientBuilder().WithScheme(scheme)
-	h := api.NewHandlers(cb.Build())
-	srv := api.NewServer(":0", "user", "pass", h)
-	return srv, cb
-}
-
 func TestBasicAuth_Unauthorized(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"net/http"
+	"time"
 )
 
 // Server exposes a minimal HTTP API for managing operator resources.
@@ -26,7 +27,14 @@ func NewServer(addr, user, pass string, h *Handlers) *Server {
 }
 
 func (s *Server) Start(ctx context.Context) error {
-	srv := &http.Server{Addr: s.addr, Handler: s.handler}
+	srv := &http.Server{
+		Addr:              s.addr,
+		Handler:           s.handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 	go func() {
 		<-ctx.Done()
 		_ = srv.Shutdown(context.Background()) //nolint:contextcheck

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -57,7 +58,11 @@ func (h *Handlers) create(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	if err := h.client.Create(r.Context(), rd); err != nil {
-		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		status := http.StatusInternalServerError
+		if apierrors.IsInvalid(err) || apierrors.IsAlreadyExists(err) {
+			status = http.StatusUnprocessableEntity
+		}
+		http.Error(w, err.Error(), status)
 		return
 	}
 	w.WriteHeader(http.StatusCreated)

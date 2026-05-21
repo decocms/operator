@@ -435,7 +435,7 @@ func addOperatorAPIEnvVars(templatesDir string) error {
 	// Extend the outer conditional to include operatorApi credentials
 	content = []byte(strings.Replace(string(content),
 		`{{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret))`,
-		`{{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) .Values.operatorApi.existingSecret .Values.operatorApi.username`,
+		`{{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) .Values.operatorApi.existingSecret (and .Values.operatorApi.username .Values.operatorApi.password)`,
 		1))
 
 	envVars := `        {{- if .Values.operatorApi.existingSecret }}
@@ -449,7 +449,7 @@ func addOperatorAPIEnvVars(templatesDir string) error {
             secretKeyRef:
               name: {{ .Values.operatorApi.existingSecret | quote }}
               key: OPERATOR_API_PASSWORD
-        {{- else if .Values.operatorApi.username }}
+        {{- else if and .Values.operatorApi.username .Values.operatorApi.password }}
         - name: OPERATOR_API_USER
           value: {{ .Values.operatorApi.username | quote }}
         - name: OPERATOR_API_PASSWORD
@@ -460,15 +460,15 @@ func addOperatorAPIEnvVars(templatesDir string) error {
           value: {{ .Values.operatorApi.addr | quote }}
         {{- end }}`
 
-	// Inject before the closing {{- end }} of the env block
+	// Inject just before livenessProbe — unique anchor outside all nested blocks
 	anchor := `        {{- end }}
-        {{- end }}`
+        livenessProbe:`
 	contentStr := strings.Replace(string(content), anchor, envVars+"\n"+anchor, 1)
 	return os.WriteFile(deploymentFile, []byte(contentStr), 0644)
 }
 
 func addOperatorAPIService(templatesDir string) error {
-	content := `{{- if or .Values.operatorApi.username .Values.operatorApi.existingSecret }}
+	content := `{{- if or .Values.operatorApi.existingSecret (and .Values.operatorApi.username .Values.operatorApi.password) }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -488,7 +488,7 @@ spec:
 }
 
 func addOperatorAPIIngress(templatesDir string) error {
-	content := `{{- if .Values.operatorApi.hostname }}
+	content := `{{- if and .Values.operatorApi.hostname (or .Values.operatorApi.existingSecret (and .Values.operatorApi.username .Values.operatorApi.password)) }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -504,7 +504,7 @@ spec:
   tls:
     - hosts:
         - {{ .Values.operatorApi.hostname }}
-      secretName: operator-api-tls
+      secretName: {{ .Release.Name }}-operator-api-tls
   rules:
     - host: {{ .Values.operatorApi.hostname }}
       http:
