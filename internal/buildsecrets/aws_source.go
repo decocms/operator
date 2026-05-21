@@ -73,5 +73,10 @@ func (s *AWSSource) Get(ctx context.Context, key string) (map[string]string, boo
 	if err := json.Unmarshal([]byte(*out.SecretString), &data); err != nil {
 		return nil, false, fmt.Errorf("parse %q as JSON object of strings: %w", key, err)
 	}
+	// Reject JSON `null` (Unmarshal leaves the map nil without erroring).
+	// An empty object {} is fine and yields a non-nil empty map.
+	if data == nil {
+		return nil, false, fmt.Errorf("secret %q payload is JSON null; expected an object of strings", key)
+	}
 	return data, true, nil
 }

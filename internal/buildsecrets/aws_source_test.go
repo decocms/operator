@@ -94,6 +94,41 @@ func TestAWSSourceGet_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestAWSSourceGet_NullJSONRejected(t *testing.T) {
+	src := &AWSSource{api: &mockSMClient{
+		out: &secretsmanager.GetSecretValueOutput{
+			SecretString: aws.String(`null`),
+		},
+	}}
+
+	_, _, err := src.Get(context.Background(), "sites/acme/build")
+	if err == nil {
+		t.Fatal("expected error for null payload, got nil")
+	}
+}
+
+func TestAWSSourceGet_EmptyObjectAccepted(t *testing.T) {
+	src := &AWSSource{api: &mockSMClient{
+		out: &secretsmanager.GetSecretValueOutput{
+			SecretString: aws.String(`{}`),
+		},
+	}}
+
+	data, exists, err := src.Get(context.Background(), "sites/acme/build")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !exists {
+		t.Fatal("empty object should be treated as existing")
+	}
+	if data == nil {
+		t.Fatal("empty object should yield non-nil empty map")
+	}
+	if len(data) != 0 {
+		t.Fatalf("data should be empty, got %v", data)
+	}
+}
+
 func TestAWSSourceGet_OtherErrorPropagates(t *testing.T) {
 	sentinel := errors.New("boom")
 	src := &AWSSource{api: &mockSMClient{err: sentinel}}
