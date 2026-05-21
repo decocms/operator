@@ -442,28 +442,23 @@ func addOperatorAPIEnvVars(templatesDir string) error {
 		1))
 
 	envVars := `        {{- if .Values.operatorApi.existingSecret }}
-        - name: OPERATOR_API_USER
-          valueFrom:
-            secretKeyRef:
-              name: {{ .Values.operatorApi.existingSecret | quote }}
-              key: OPERATOR_API_USER
-              optional: true
-        - name: OPERATOR_API_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: {{ .Values.operatorApi.existingSecret | quote }}
-              key: OPERATOR_API_PASSWORD
-              optional: true
         {{- if .Values.operatorApi.addr }}
         - name: OPERATOR_API_ADDR
           value: {{ .Values.operatorApi.addr | quote }}
         {{- end }}
         {{- end }}`
 
-	// Inject just before livenessProbe — unique anchor outside all nested blocks
-	anchor := `        {{- end }}
-        livenessProbe:`
-	contentStr := strings.Replace(string(content), anchor, envVars+"\n"+anchor, 1)
+	envFrom := `        {{- if .Values.operatorApi.existingSecret }}
+        envFrom:
+        - secretRef:
+            name: {{ .Values.operatorApi.existingSecret | quote }}
+            optional: true
+        {{- end }}`
+
+	// envVars injects inside the env: block; envFrom injects after env: closes, before livenessProbe
+	anchor := "        {{- end }}\n        livenessProbe:"
+	replacement := envVars + "\n        {{- end }}\n" + envFrom + "\n        livenessProbe:"
+	contentStr := strings.Replace(string(content), anchor, replacement, 1)
 	return os.WriteFile(deploymentFile, []byte(contentStr), 0644)
 }
 
