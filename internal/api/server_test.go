@@ -51,10 +51,10 @@ func TestCreate_HappyPath(t *testing.T) {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	list := &decositesv1alpha1.RedirectDomainList{}
+	list := &decositesv1alpha1.DecoRedirectList{}
 	_ = fc.List(context.Background(), list)
 	if len(list.Items) != 1 {
-		t.Fatalf("expected 1 RedirectDomain, got %d", len(list.Items))
+		t.Fatalf("expected 1 DecoRedirect, got %d", len(list.Items))
 	}
 }
 
@@ -62,9 +62,9 @@ func TestDelete_HappyPath(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = decositesv1alpha1.AddToScheme(scheme)
-	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&decositesv1alpha1.RedirectDomain{
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&decositesv1alpha1.DecoRedirect{
 		ObjectMeta: metav1.ObjectMeta{Name: "example-com", Namespace: "deco-redirect-system"},
-		Spec:       decositesv1alpha1.RedirectDomainSpec{From: "example.com", To: "https://www.example.com"},
+		Spec:       decositesv1alpha1.DecoRedirectSpec{From: "example.com", To: "https://www.example.com"},
 	}).Build()
 	h := api.NewHandlers(fc, "deco-redirect-system")
 	srv := api.NewServer(":0", "user", "pass", h)
@@ -82,9 +82,9 @@ func TestGet_HappyPath(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = decositesv1alpha1.AddToScheme(scheme)
-	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&decositesv1alpha1.RedirectDomain{
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&decositesv1alpha1.DecoRedirect{
 		ObjectMeta: metav1.ObjectMeta{Name: "example-com", Namespace: "deco-redirect-system"},
-		Spec:       decositesv1alpha1.RedirectDomainSpec{From: "example.com", To: "https://www.example.com"},
+		Spec:       decositesv1alpha1.DecoRedirectSpec{From: "example.com", To: "https://www.example.com"},
 	}).Build()
 	h := api.NewHandlers(fc, "deco-redirect-system")
 	srv := api.NewServer(":0", "user", "pass", h)
@@ -127,9 +127,9 @@ func TestList_HappyPath(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = decositesv1alpha1.AddToScheme(scheme)
-	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&decositesv1alpha1.RedirectDomain{
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&decositesv1alpha1.DecoRedirect{
 		ObjectMeta: metav1.ObjectMeta{Name: "example-com", Namespace: "deco-redirect-system"},
-		Spec:       decositesv1alpha1.RedirectDomainSpec{From: "example.com", To: "https://www.example.com"},
+		Spec:       decositesv1alpha1.DecoRedirectSpec{From: "example.com", To: "https://www.example.com"},
 	}).Build()
 	h := api.NewHandlers(fc, "deco-redirect-system")
 	srv := api.NewServer(":0", "user", "pass", h)

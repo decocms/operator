@@ -1,5 +1,5 @@
 apiVersion: deco.sites/v1alpha1
-kind: RedirectDomain
+kind: DecoRedirect
 metadata:
   name: example-redirect
   namespace: deco-redirect-system

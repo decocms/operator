@@ -6,9 +6,9 @@ const (
 	ConditionCertificateReady = "CertificateReady"
 )
 
-// RedirectDomainSpec defines the desired state of RedirectDomain.
+// DecoRedirectSpec defines the desired state of DecoRedirect.
 // +kubebuilder:validation:XValidation:rule="(self.to+'/').contains('.'+self.from+'/') || (self.to+'/').contains('//'+self.from+'/')",message="redirect target must be within the same domain as 'from' (e.g. from: client.com → to: https://www.client.com)"
-type RedirectDomainSpec struct {
+type DecoRedirectSpec struct {
 	// From is the apex domain to redirect (e.g. "client.com").
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
@@ -24,37 +24,38 @@ type RedirectDomainSpec struct {
 	To string `json:"to"`
 }
 
-// RedirectDomainStatus defines the observed state of RedirectDomain.
-type RedirectDomainStatus struct {
-	// Conditions represent the latest observations of the RedirectDomain's state.
+// DecoRedirectStatus defines the observed state of DecoRedirect.
+type DecoRedirectStatus struct {
+	// Conditions represent the latest observations of the DecoRedirect's state.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:path=decoredict,singular=decoredirect
 // +kubebuilder:printcolumn:name="From",type="string",JSONPath=".spec.from"
 // +kubebuilder:printcolumn:name="To",type="string",JSONPath=".spec.to"
 // +kubebuilder:printcolumn:name="CertReady",type="string",JSONPath=".status.conditions[?(@.type=='CertificateReady')].status"
 
-// RedirectDomain manages a TLS-terminated apex redirect via cert-manager and nginx Ingress.
-type RedirectDomain struct {
+// DecoRedirect manages a TLS-terminated apex redirect via cert-manager and nginx Ingress.
+type DecoRedirect struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   RedirectDomainSpec   `json:"spec,omitempty"`
-	Status RedirectDomainStatus `json:"status,omitempty"`
+	Spec   DecoRedirectSpec   `json:"spec,omitempty"`
+	Status DecoRedirectStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-// RedirectDomainList contains a list of RedirectDomain.
-type RedirectDomainList struct {
+// DecoRedirectList contains a list of DecoRedirect.
+type DecoRedirectList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []RedirectDomain `json:"items"`
+	Items           []DecoRedirect `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&RedirectDomain{}, &RedirectDomainList{})
+	SchemeBuilder.Register(&DecoRedirect{}, &DecoRedirectList{})
 }

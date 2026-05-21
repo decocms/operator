@@ -79,8 +79,8 @@ rules:
   - deco.sites
   resources:
   - decofiles
+  - decoredict
   - decos
-  - redirectdomains
   verbs:
   - create
   - delete
@@ -93,16 +93,16 @@ rules:
   - deco.sites
   resources:
   - decofiles/finalizers
+  - decoredict/finalizers
   - decos/finalizers
-  - redirectdomains/finalizers
   verbs:
   - update
 - apiGroups:
   - deco.sites
   resources:
   - decofiles/status
+  - decoredict/status
   - decos/status
-  - redirectdomains/status
   verbs:
   - get
   - patch
