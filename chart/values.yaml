@@ -116,6 +116,16 @@ build:
   nodeSelector: {}      # Default nodeSelector for build pods (overridable per-site via spec.build.nodeSelector)
   tolerations: []       # Default tolerations for build pods (overridable per-site via spec.build.tolerations)
 
+# ── Redirect Management API ──────────────────────────────────────────────────
+# HTTP API for CRUD of RedirectDomain CRs. Enabled when username+password (or existingSecret) are set.
+# Set hostname to expose the API via the redirect-nginx Ingress with TLS.
+redirectApi:
+  addr: ":9090"
+  hostname: ""           # e.g. "api.redirect.infra.deco.cx" — creates Ingress+Certificate automatically
+  username: ""           # inline (dev only)
+  password: ""
+  existingSecret: ""     # Secret with keys REDIRECT_API_USER and REDIRECT_API_PASSWORD
+
 # ── Domain Redirect ──────────────────────────────────────────────────────────
 # Application-level redirect config — all features are opt-in.
 # Set ingressClass to enable RedirectDomain reconciliation.

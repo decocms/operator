@@ -108,6 +108,15 @@ func main() {
 	if err := addRedirectControllerArgs(templatesDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect controller args: %v\n", err)
 	}
+	if err := addRedirectAPIEnvVars(templatesDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect API env vars: %v\n", err)
+	}
+	if err := addRedirectAPIService(templatesDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect API service: %v\n", err)
+	}
+	if err := addRedirectAPIIngress(templatesDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect API ingress: %v\n", err)
+	}
 
 	fmt.Printf("✓ Generated %d Helm templates\n\n", fileCount)
 	fmt.Println("Test with:")
@@ -410,4 +419,102 @@ func addRedirectControllerArgs(templatesDir string) error {
 	}
 	contentStr := strings.Replace(string(content), anchor, anchor+"\n"+args, 1)
 	return os.WriteFile(deploymentFile, []byte(contentStr), 0644)
+}
+
+func addRedirectAPIEnvVars(templatesDir string) error {
+	files, err := filepath.Glob(filepath.Join(templatesDir, "deployment-*.yaml"))
+	if err != nil || len(files) == 0 {
+		return fmt.Errorf("no deployment file found")
+	}
+	deploymentFile := files[0]
+	content, err := os.ReadFile(deploymentFile)
+	if err != nil {
+		return err
+	}
+
+	// Extend the outer conditional to include redirectApi credentials
+	content = []byte(strings.Replace(string(content),
+		`{{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret))`,
+		`{{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) .Values.redirectApi.existingSecret .Values.redirectApi.username`,
+		1))
+
+	envVars := `        {{- if .Values.redirectApi.existingSecret }}
+        - name: REDIRECT_API_USER
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.redirectApi.existingSecret | quote }}
+              key: REDIRECT_API_USER
+        - name: REDIRECT_API_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.redirectApi.existingSecret | quote }}
+              key: REDIRECT_API_PASSWORD
+        {{- else if .Values.redirectApi.username }}
+        - name: REDIRECT_API_USER
+          value: {{ .Values.redirectApi.username | quote }}
+        - name: REDIRECT_API_PASSWORD
+          value: {{ .Values.redirectApi.password | quote }}
+        {{- end }}
+        {{- if .Values.redirectApi.addr }}
+        - name: REDIRECT_API_ADDR
+          value: {{ .Values.redirectApi.addr | quote }}
+        {{- end }}`
+
+	// Inject before the closing {{- end }} of the env block
+	anchor := `        {{- end }}
+        {{- end }}`
+	contentStr := strings.Replace(string(content), anchor, envVars+"\n"+anchor, 1)
+	return os.WriteFile(deploymentFile, []byte(contentStr), 0644)
+}
+
+func addRedirectAPIService(templatesDir string) error {
+	content := `{{- if or .Values.redirectApi.username .Values.redirectApi.existingSecret }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-redirect-api
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    control-plane: controller-manager
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+  type: ClusterIP
+{{- end }}
+`
+	return os.WriteFile(filepath.Join(templatesDir, "service-redirect-api.yaml"), []byte(content), 0644)
+}
+
+func addRedirectAPIIngress(templatesDir string) error {
+	content := `{{- if .Values.redirectApi.hostname }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-redirect-api
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    cert-manager.io/cluster-issuer: {{ .Values.redirect.clusterIssuer.name | quote }}
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: {{ .Values.redirect.ingressClass }}
+  tls:
+    - hosts:
+        - {{ .Values.redirectApi.hostname }}
+      secretName: redirect-api-tls
+  rules:
+    - host: {{ .Values.redirectApi.hostname }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-redirect-api
+                port:
+                  number: 9090
+{{- end }}
+`
+	return os.WriteFile(filepath.Join(templatesDir, "ingress-redirect-api.yaml"), []byte(content), 0644)
 }
