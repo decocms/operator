@@ -108,13 +108,13 @@ func main() {
 	if err := addRedirectControllerArgs(templatesDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect controller args: %v\n", err)
 	}
-	if err := addRedirectAPIEnvVars(templatesDir); err != nil {
+	if err := addOperatorAPIEnvVars(templatesDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect API env vars: %v\n", err)
 	}
-	if err := addRedirectAPIService(templatesDir); err != nil {
+	if err := addOperatorAPIService(templatesDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect API service: %v\n", err)
 	}
-	if err := addRedirectAPIIngress(templatesDir); err != nil {
+	if err := addOperatorAPIIngress(templatesDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect API ingress: %v\n", err)
 	}
 
@@ -421,7 +421,7 @@ func addRedirectControllerArgs(templatesDir string) error {
 	return os.WriteFile(deploymentFile, []byte(contentStr), 0644)
 }
 
-func addRedirectAPIEnvVars(templatesDir string) error {
+func addOperatorAPIEnvVars(templatesDir string) error {
 	files, err := filepath.Glob(filepath.Join(templatesDir, "deployment-*.yaml"))
 	if err != nil || len(files) == 0 {
 		return fmt.Errorf("no deployment file found")
@@ -432,32 +432,32 @@ func addRedirectAPIEnvVars(templatesDir string) error {
 		return err
 	}
 
-	// Extend the outer conditional to include redirectApi credentials
+	// Extend the outer conditional to include operatorApi credentials
 	content = []byte(strings.Replace(string(content),
 		`{{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret))`,
-		`{{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) .Values.redirectApi.existingSecret .Values.redirectApi.username`,
+		`{{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) .Values.operatorApi.existingSecret .Values.operatorApi.username`,
 		1))
 
-	envVars := `        {{- if .Values.redirectApi.existingSecret }}
-        - name: REDIRECT_API_USER
+	envVars := `        {{- if .Values.operatorApi.existingSecret }}
+        - name: OPERATOR_API_USER
           valueFrom:
             secretKeyRef:
-              name: {{ .Values.redirectApi.existingSecret | quote }}
-              key: REDIRECT_API_USER
-        - name: REDIRECT_API_PASSWORD
+              name: {{ .Values.operatorApi.existingSecret | quote }}
+              key: OPERATOR_API_USER
+        - name: OPERATOR_API_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: {{ .Values.redirectApi.existingSecret | quote }}
-              key: REDIRECT_API_PASSWORD
-        {{- else if .Values.redirectApi.username }}
-        - name: REDIRECT_API_USER
-          value: {{ .Values.redirectApi.username | quote }}
-        - name: REDIRECT_API_PASSWORD
-          value: {{ .Values.redirectApi.password | quote }}
+              name: {{ .Values.operatorApi.existingSecret | quote }}
+              key: OPERATOR_API_PASSWORD
+        {{- else if .Values.operatorApi.username }}
+        - name: OPERATOR_API_USER
+          value: {{ .Values.operatorApi.username | quote }}
+        - name: OPERATOR_API_PASSWORD
+          value: {{ .Values.operatorApi.password | quote }}
         {{- end }}
-        {{- if .Values.redirectApi.addr }}
-        - name: REDIRECT_API_ADDR
-          value: {{ .Values.redirectApi.addr | quote }}
+        {{- if .Values.operatorApi.addr }}
+        - name: OPERATOR_API_ADDR
+          value: {{ .Values.operatorApi.addr | quote }}
         {{- end }}`
 
 	// Inject before the closing {{- end }} of the env block
@@ -467,12 +467,12 @@ func addRedirectAPIEnvVars(templatesDir string) error {
 	return os.WriteFile(deploymentFile, []byte(contentStr), 0644)
 }
 
-func addRedirectAPIService(templatesDir string) error {
-	content := `{{- if or .Values.redirectApi.username .Values.redirectApi.existingSecret }}
+func addOperatorAPIService(templatesDir string) error {
+	content := `{{- if or .Values.operatorApi.username .Values.operatorApi.existingSecret }}
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Release.Name }}-redirect-api
+  name: {{ .Release.Name }}-operator-api
   namespace: {{ .Release.Namespace }}
 spec:
   selector:
@@ -484,39 +484,39 @@ spec:
   type: ClusterIP
 {{- end }}
 `
-	return os.WriteFile(filepath.Join(templatesDir, "service-redirect-api.yaml"), []byte(content), 0644)
+	return os.WriteFile(filepath.Join(templatesDir, "service-operator-api.yaml"), []byte(content), 0644)
 }
 
-func addRedirectAPIIngress(templatesDir string) error {
-	content := `{{- if .Values.redirectApi.hostname }}
+func addOperatorAPIIngress(templatesDir string) error {
+	content := `{{- if .Values.operatorApi.hostname }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ .Release.Name }}-redirect-api
+  name: {{ .Release.Name }}-operator-api
   namespace: {{ .Release.Namespace }}
   annotations:
-    cert-manager.io/cluster-issuer: {{ coalesce .Values.redirectApi.clusterIssuer .Values.redirect.clusterIssuer.name | quote }}
+    cert-manager.io/cluster-issuer: {{ coalesce .Values.operatorApi.clusterIssuer .Values.redirect.clusterIssuer.name | quote }}
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
-  {{- if .Values.redirectApi.ingressClass }}
-  ingressClassName: {{ .Values.redirectApi.ingressClass }}
+  {{- if .Values.operatorApi.ingressClass }}
+  ingressClassName: {{ .Values.operatorApi.ingressClass }}
   {{- end }}
   tls:
     - hosts:
-        - {{ .Values.redirectApi.hostname }}
-      secretName: redirect-api-tls
+        - {{ .Values.operatorApi.hostname }}
+      secretName: operator-api-tls
   rules:
-    - host: {{ .Values.redirectApi.hostname }}
+    - host: {{ .Values.operatorApi.hostname }}
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: {{ .Release.Name }}-redirect-api
+                name: {{ .Release.Name }}-operator-api
                 port:
                   number: 9090
 {{- end }}
 `
-	return os.WriteFile(filepath.Join(templatesDir, "ingress-redirect-api.yaml"), []byte(content), 0644)
+	return os.WriteFile(filepath.Join(templatesDir, "ingress-operator-api.yaml"), []byte(content), 0644)
 }

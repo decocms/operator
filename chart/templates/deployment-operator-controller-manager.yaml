@@ -38,7 +38,7 @@ spec:
         command:
         - /manager
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) .Values.redirectApi.existingSecret .Values.redirectApi.username (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret .Values.cfworkers.builderImage .Values.cfworkers.artifactsBucket .Values.s3.region .Values.s3.logsBucket .Values.s3.stateBucket .Values.build.serviceAccount .Values.build.roleArn .Values.build.nodeSelector .Values.build.tolerations }}
+        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) .Values.operatorApi.existingSecret .Values.operatorApi.username (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret .Values.cfworkers.builderImage .Values.cfworkers.artifactsBucket .Values.s3.region .Values.s3.logsBucket .Values.s3.stateBucket .Values.build.serviceAccount .Values.build.roleArn .Values.build.nodeSelector .Values.build.tolerations }}
         env:
         {{- if and .Values.github .Values.github.existingSecret }}
         - name: GITHUB_TOKEN
@@ -65,26 +65,26 @@ spec:
         {{- else if .adminPassword }}
         - name: VALKEY_ADMIN_PASSWORD
           value: {{ .adminPassword | quote }}
-        {{- if .Values.redirectApi.existingSecret }}
-        - name: REDIRECT_API_USER
+        {{- if .Values.operatorApi.existingSecret }}
+        - name: OPERATOR_API_USER
           valueFrom:
             secretKeyRef:
-              name: {{ .Values.redirectApi.existingSecret | quote }}
-              key: REDIRECT_API_USER
-        - name: REDIRECT_API_PASSWORD
+              name: {{ .Values.operatorApi.existingSecret | quote }}
+              key: OPERATOR_API_USER
+        - name: OPERATOR_API_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: {{ .Values.redirectApi.existingSecret | quote }}
-              key: REDIRECT_API_PASSWORD
-        {{- else if .Values.redirectApi.username }}
-        - name: REDIRECT_API_USER
-          value: {{ .Values.redirectApi.username | quote }}
-        - name: REDIRECT_API_PASSWORD
-          value: {{ .Values.redirectApi.password | quote }}
+              name: {{ .Values.operatorApi.existingSecret | quote }}
+              key: OPERATOR_API_PASSWORD
+        {{- else if .Values.operatorApi.username }}
+        - name: OPERATOR_API_USER
+          value: {{ .Values.operatorApi.username | quote }}
+        - name: OPERATOR_API_PASSWORD
+          value: {{ .Values.operatorApi.password | quote }}
         {{- end }}
-        {{- if .Values.redirectApi.addr }}
-        - name: REDIRECT_API_ADDR
-          value: {{ .Values.redirectApi.addr | quote }}
+        {{- if .Values.operatorApi.addr }}
+        - name: OPERATOR_API_ADDR
+          value: {{ .Values.operatorApi.addr | quote }}
         {{- end }}
         {{- end }}
         {{- end }}

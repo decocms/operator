@@ -6,7 +6,7 @@ import (
 	"net/http"
 )
 
-// Server exposes a minimal HTTP API for managing RedirectDomain CRs.
+// Server exposes a minimal HTTP API for managing operator resources.
 // It implements manager.Runnable so controller-runtime starts it alongside controllers.
 // TLS is terminated at the ingress/NLB layer; the server listens on plain HTTP.
 type Server struct {
@@ -49,7 +49,7 @@ func basicAuth(user, pass string, next http.Handler) http.Handler {
 		if !ok ||
 			subtle.ConstantTimeCompare([]byte(u), []byte(user)) != 1 ||
 			subtle.ConstantTimeCompare([]byte(p), []byte(pass)) != 1 {
-			w.Header().Set("WWW-Authenticate", `Basic realm="redirect-api"`)
+			w.Header().Set("WWW-Authenticate", `Basic realm="operator-api"`)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

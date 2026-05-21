@@ -118,10 +118,10 @@ func main() {
 		"Subscribe to Sentinel +switch-master events and trigger immediate ACL resync on failover. "+
 			"Enabled by default when VALKEY_SENTINEL_URLS is set. Set VALKEY_WATCH_FAILOVER=false to disable.")
 
-	var redirectAPIAddr string
-	flag.StringVar(&redirectAPIAddr, "redirect-api-addr",
-		getEnvOrDefault("REDIRECT_API_ADDR", ":9090"),
-		"Address for the redirect management HTTP API.")
+	var operatorAPIAddr string
+	flag.StringVar(&operatorAPIAddr, "operator-api-addr",
+		getEnvOrDefault("OPERATOR_API_ADDR", ":9090"),
+		"Address for the operator management HTTP API.")
 
 	var redirectIngressClass string
 	var redirectClusterIssuer string
@@ -371,15 +371,15 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "RedirectDomain")
 		os.Exit(1)
 	}
-	apiUser := os.Getenv("REDIRECT_API_USER")
-	apiPass := os.Getenv("REDIRECT_API_PASSWORD")
+	apiUser := os.Getenv("OPERATOR_API_USER")
+	apiPass := os.Getenv("OPERATOR_API_PASSWORD")
 	if apiUser != "" && apiPass != "" {
 		h := api.NewHandlers(mgr.GetClient())
-		if err := mgr.Add(api.NewServer(redirectAPIAddr, apiUser, apiPass, h)); err != nil {
-			setupLog.Error(err, "unable to add redirect API server")
+		if err := mgr.Add(api.NewServer(operatorAPIAddr, apiUser, apiPass, h)); err != nil {
+			setupLog.Error(err, "unable to add operator API server")
 			os.Exit(1)
 		}
-		setupLog.Info("Redirect API enabled", "addr", redirectAPIAddr)
+		setupLog.Info("Operator API enabled", "addr", operatorAPIAddr)
 	}
 
 	// +kubebuilder:scaffold:builder

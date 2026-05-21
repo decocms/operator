@@ -1,0 +1,29 @@
+{{- if .Values.operatorApi.hostname }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-operator-api
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    cert-manager.io/cluster-issuer: {{ coalesce .Values.operatorApi.clusterIssuer .Values.redirect.clusterIssuer.name | quote }}
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  {{- if .Values.operatorApi.ingressClass }}
+  ingressClassName: {{ .Values.operatorApi.ingressClass }}
+  {{- end }}
+  tls:
+    - hosts:
+        - {{ .Values.operatorApi.hostname }}
+      secretName: operator-api-tls
+  rules:
+    - host: {{ .Values.operatorApi.hostname }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-operator-api
+                port:
+                  number: 9090
+{{- end }}
