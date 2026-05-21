@@ -35,8 +35,8 @@ func (h *Handlers) create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	req.From = sanitizeDomain(req.From)
-	if !domainRe.MatchString(req.From) {
+	from := strings.ToLower(strings.TrimSpace(req.From))
+	if !domainRe.MatchString(from) {
 		http.Error(w, "invalid domain in 'from'", http.StatusBadRequest)
 		return
 	}
@@ -48,23 +48,23 @@ func (h *Handlers) create(w http.ResponseWriter, r *http.Request) {
 
 	rd := &decositesv1alpha1.RedirectDomain{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      sanitizeDomain(req.From),
+			Name:      domainToName(from), // dots → dashes for k8s name
 			Namespace: ns,
 		},
 		Spec: decositesv1alpha1.RedirectDomainSpec{
-			From: req.From,
+			From: from, // original domain preserved for CEL validation
 			To:   req.To,
 		},
 	}
 	if err := h.client.Create(r.Context(), rd); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
 }
 
 func (h *Handlers) delete(w http.ResponseWriter, r *http.Request) {
-	domain := sanitizeDomain(r.PathValue("domain"))
+	domain := domainToName(strings.ToLower(strings.TrimSpace(r.PathValue("domain"))))
 	ns := nsOrDefault(r.URL.Query().Get("namespace"))
 
 	rd := &decositesv1alpha1.RedirectDomain{
@@ -89,8 +89,8 @@ func (h *Handlers) list(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(list.Items)
 }
 
-func sanitizeDomain(d string) string {
-	d = strings.ToLower(strings.TrimSpace(d))
+// domainToName converts a domain to a valid k8s resource name (dots → dashes).
+func domainToName(d string) string {
 	return strings.ReplaceAll(d, ".", "-")
 }
 
