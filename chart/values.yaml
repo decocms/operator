@@ -122,7 +122,7 @@ build:
 # Set hostname to auto-create an Ingress+Certificate via the cluster default ingress.
 operatorApi:
   addr: ":9090"
-  hostname: ""           # e.g. "operator-api.deco.cx" — creates Ingress+Certificate automatically
+  hostname: ""           # e.g. "api.infra.deco.cx" — creates Ingress+Certificate automatically
   ingressClass: ""       # leave empty to use the cluster default ingress (recommended)
   clusterIssuer: ""      # cert-manager ClusterIssuer; defaults to redirect.clusterIssuer.name if empty
   username: ""           # inline (dev only)
