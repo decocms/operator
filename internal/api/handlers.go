@@ -58,8 +58,10 @@ func (h *Handlers) create(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.client.Create(r.Context(), rd); err != nil {
 		status := http.StatusInternalServerError
-		if apierrors.IsInvalid(err) || apierrors.IsAlreadyExists(err) {
+		if apierrors.IsInvalid(err) {
 			status = http.StatusUnprocessableEntity
+		} else if apierrors.IsAlreadyExists(err) {
+			status = http.StatusConflict
 		}
 		http.Error(w, err.Error(), status)
 		return
