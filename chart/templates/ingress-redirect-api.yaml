@@ -5,10 +5,12 @@ metadata:
   name: {{ .Release.Name }}-redirect-api
   namespace: {{ .Release.Namespace }}
   annotations:
-    cert-manager.io/cluster-issuer: {{ .Values.redirect.clusterIssuer.name | quote }}
+    cert-manager.io/cluster-issuer: {{ coalesce .Values.redirectApi.clusterIssuer .Values.redirect.clusterIssuer.name | quote }}
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
-  ingressClassName: {{ .Values.redirect.ingressClass }}
+  {{- if .Values.redirectApi.ingressClass }}
+  ingressClassName: {{ .Values.redirectApi.ingressClass }}
+  {{- end }}
   tls:
     - hosts:
         - {{ .Values.redirectApi.hostname }}

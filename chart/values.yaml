@@ -122,6 +122,8 @@ build:
 redirectApi:
   addr: ":9090"
   hostname: ""           # e.g. "api.redirect.infra.deco.cx" — creates Ingress+Certificate automatically
+  ingressClass: ""       # leave empty to use the cluster default ingress (recommended); set to "redirect-nginx" to route through the redirect NLB
+  clusterIssuer: ""      # cert-manager ClusterIssuer for the API TLS cert; defaults to redirect.clusterIssuer.name if empty
   username: ""           # inline (dev only)
   password: ""
   existingSecret: ""     # Secret with keys REDIRECT_API_USER and REDIRECT_API_PASSWORD
