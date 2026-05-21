@@ -447,11 +447,13 @@ func addOperatorAPIEnvVars(templatesDir string) error {
             secretKeyRef:
               name: {{ .Values.operatorApi.existingSecret | quote }}
               key: OPERATOR_API_USER
+              optional: true
         - name: OPERATOR_API_PASSWORD
           valueFrom:
             secretKeyRef:
               name: {{ .Values.operatorApi.existingSecret | quote }}
               key: OPERATOR_API_PASSWORD
+              optional: true
         {{- if .Values.operatorApi.addr }}
         - name: OPERATOR_API_ADDR
           value: {{ .Values.operatorApi.addr | quote }}
