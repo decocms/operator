@@ -108,6 +108,15 @@ func main() {
 	if err := addRedirectControllerArgs(templatesDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect controller args: %v\n", err)
 	}
+	if err := addOperatorAPIEnvVars(templatesDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect API env vars: %v\n", err)
+	}
+	if err := addOperatorAPIService(templatesDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect API service: %v\n", err)
+	}
+	if err := addOperatorAPIIngress(templatesDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect API ingress: %v\n", err)
+	}
 
 	fmt.Printf("✓ Generated %d Helm templates\n\n", fileCount)
 	fmt.Println("Test with:")
@@ -402,6 +411,9 @@ func addRedirectControllerArgs(templatesDir string) error {
 	args := `        {{- if .Values.redirect.ingressClass }}
         - --redirect-ingress-class={{ .Values.redirect.ingressClass }}
         - --redirect-cluster-issuer={{ .Values.redirect.clusterIssuer.name }}
+        {{- end }}
+        {{- if .Values.redirect.namespace }}
+        - --redirect-namespace={{ .Values.redirect.namespace }}
         {{- end }}`
 
 	anchor := `        - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs`
@@ -410,4 +422,96 @@ func addRedirectControllerArgs(templatesDir string) error {
 	}
 	contentStr := strings.Replace(string(content), anchor, anchor+"\n"+args, 1)
 	return os.WriteFile(deploymentFile, []byte(contentStr), 0644)
+}
+
+func addOperatorAPIEnvVars(templatesDir string) error {
+	files, err := filepath.Glob(filepath.Join(templatesDir, "deployment-*.yaml"))
+	if err != nil || len(files) == 0 {
+		return fmt.Errorf("no deployment file found")
+	}
+	deploymentFile := files[0]
+	content, err := os.ReadFile(deploymentFile)
+	if err != nil {
+		return err
+	}
+
+	// Extend the outer conditional to include operatorApi credentials
+	content = []byte(strings.Replace(string(content),
+		`{{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret))`,
+		`{{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) .Values.operatorApi.existingSecret`,
+		1))
+
+	envVars := `        {{- if .Values.operatorApi.existingSecret }}
+        {{- if .Values.operatorApi.addr }}
+        - name: OPERATOR_API_ADDR
+          value: {{ .Values.operatorApi.addr | quote }}
+        {{- end }}
+        {{- end }}`
+
+	envFrom := `        {{- if .Values.operatorApi.existingSecret }}
+        envFrom:
+        - secretRef:
+            name: {{ .Values.operatorApi.existingSecret | quote }}
+            optional: true
+        {{- end }}`
+
+	// envVars injects inside the env: block; envFrom injects after env: closes, before livenessProbe
+	anchor := "        {{- end }}\n        livenessProbe:"
+	replacement := envVars + "\n        {{- end }}\n" + envFrom + "\n        livenessProbe:"
+	contentStr := strings.Replace(string(content), anchor, replacement, 1)
+	return os.WriteFile(deploymentFile, []byte(contentStr), 0644)
+}
+
+func addOperatorAPIService(templatesDir string) error {
+	content := `{{- if .Values.operatorApi.existingSecret }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-operator-api
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    control-plane: controller-manager
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+  type: ClusterIP
+{{- end }}
+`
+	return os.WriteFile(filepath.Join(templatesDir, "service-operator-api.yaml"), []byte(content), 0644)
+}
+
+func addOperatorAPIIngress(templatesDir string) error {
+	content := `{{- if and .Values.operatorApi.hostname .Values.operatorApi.existingSecret }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-operator-api
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    cert-manager.io/cluster-issuer: {{ coalesce .Values.operatorApi.clusterIssuer .Values.redirect.clusterIssuer.name | quote }}
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  {{- if .Values.operatorApi.ingressClass }}
+  ingressClassName: {{ .Values.operatorApi.ingressClass }}
+  {{- end }}
+  tls:
+    - hosts:
+        - {{ .Values.operatorApi.hostname }}
+      secretName: {{ .Release.Name }}-operator-api-tls
+  rules:
+    - host: {{ .Values.operatorApi.hostname }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-operator-api
+                port:
+                  number: 9090
+{{- end }}
+`
+	return os.WriteFile(filepath.Join(templatesDir, "ingress-operator-api.yaml"), []byte(content), 0644)
 }

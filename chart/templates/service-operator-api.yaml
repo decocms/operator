@@ -1,0 +1,15 @@
+{{- if .Values.operatorApi.existingSecret }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-operator-api
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    control-plane: controller-manager
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+  type: ClusterIP
+{{- end }}

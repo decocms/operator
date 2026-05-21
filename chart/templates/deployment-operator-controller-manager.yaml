@@ -35,10 +35,13 @@ spec:
         - --redirect-ingress-class={{ .Values.redirect.ingressClass }}
         - --redirect-cluster-issuer={{ .Values.redirect.clusterIssuer.name }}
         {{- end }}
+        {{- if .Values.redirect.namespace }}
+        - --redirect-namespace={{ .Values.redirect.namespace }}
+        {{- end }}
         command:
         - /manager
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret .Values.cfworkers.builderImage .Values.cfworkers.artifactsBucket .Values.s3.region .Values.s3.logsBucket .Values.s3.stateBucket .Values.build.serviceAccount .Values.build.roleArn .Values.build.nodeSelector .Values.build.tolerations }}
+        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) .Values.operatorApi.existingSecret (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret .Values.cfworkers.builderImage .Values.cfworkers.artifactsBucket .Values.s3.region .Values.s3.logsBucket .Values.s3.stateBucket .Values.build.serviceAccount .Values.build.roleArn .Values.build.nodeSelector .Values.build.tolerations }}
         env:
         {{- if and .Values.github .Values.github.existingSecret }}
         - name: GITHUB_TOKEN
@@ -122,6 +125,18 @@ spec:
           value: {{ .tolerations | toJson | quote }}
         {{- end }}
         {{- end }}
+        {{- if .Values.operatorApi.existingSecret }}
+        {{- if .Values.operatorApi.addr }}
+        - name: OPERATOR_API_ADDR
+          value: {{ .Values.operatorApi.addr | quote }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- if .Values.operatorApi.existingSecret }}
+        envFrom:
+        - secretRef:
+            name: {{ .Values.operatorApi.existingSecret | quote }}
+            optional: true
         {{- end }}
         livenessProbe:
           httpGet:

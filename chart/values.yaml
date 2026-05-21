@@ -116,6 +116,17 @@ build:
   nodeSelector: {}      # Default nodeSelector for build pods (overridable per-site via spec.build.nodeSelector)
   tolerations: []       # Default tolerations for build pods (overridable per-site via spec.build.tolerations)
 
+# ── Operator Management API ──────────────────────────────────────────────────
+# General HTTP API for managing operator resources (RedirectDomains, etc.).
+# Enabled when username+password (or existingSecret) are set.
+# Set hostname to auto-create an Ingress+Certificate via the cluster default ingress.
+operatorApi:
+  addr: ":9090"
+  hostname: ""           # e.g. "operator.infra.deco.cx" — creates Ingress+Certificate automatically
+  ingressClass: ""       # leave empty to use the cluster default ingress (recommended)
+  clusterIssuer: ""      # cert-manager ClusterIssuer; defaults to redirect.clusterIssuer.name if empty
+  existingSecret: ""     # Secret with keys OPERATOR_API_USER and OPERATOR_API_PASSWORD
+
 # ── Domain Redirect ──────────────────────────────────────────────────────────
 # Application-level redirect config — all features are opt-in.
 # Set ingressClass to enable RedirectDomain reconciliation.

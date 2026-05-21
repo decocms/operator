@@ -46,6 +46,7 @@ import (
 	servingknativedevv1 "knative.dev/serving/pkg/apis/serving/v1"
 
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
+	"github.com/deco-sites/decofile-operator/internal/api"
 	"github.com/deco-sites/decofile-operator/internal/build"
 	"github.com/deco-sites/decofile-operator/internal/controller"
 	"github.com/deco-sites/decofile-operator/internal/valkey"
@@ -116,6 +117,15 @@ func main() {
 		os.Getenv("VALKEY_WATCH_FAILOVER") != "false",
 		"Subscribe to Sentinel +switch-master events and trigger immediate ACL resync on failover. "+
 			"Enabled by default when VALKEY_SENTINEL_URLS is set. Set VALKEY_WATCH_FAILOVER=false to disable.")
+
+	var operatorAPIAddr string
+	flag.StringVar(&operatorAPIAddr, "operator-api-addr",
+		getEnvOrDefault("OPERATOR_API_ADDR", ":9090"),
+		"Address for the operator management HTTP API.")
+	var redirectNamespace string
+	flag.StringVar(&redirectNamespace, "redirect-namespace",
+		getEnvOrDefault("REDIRECT_NAMESPACE", "deco-redirect-system"),
+		"Default namespace for RedirectDomain resources.")
 
 	var redirectIngressClass string
 	var redirectClusterIssuer string
@@ -365,6 +375,17 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "RedirectDomain")
 		os.Exit(1)
 	}
+	apiUser := os.Getenv("OPERATOR_API_USER")
+	apiPass := os.Getenv("OPERATOR_API_PASSWORD")
+	if apiUser != "" && apiPass != "" {
+		h := api.NewHandlers(mgr.GetClient(), redirectNamespace)
+		if err := mgr.Add(api.NewServer(operatorAPIAddr, apiUser, apiPass, h)); err != nil {
+			setupLog.Error(err, "unable to add operator API server")
+			os.Exit(1)
+		}
+		setupLog.Info("Operator API enabled", "addr", operatorAPIAddr)
+	}
+
 	// +kubebuilder:scaffold:builder
 
 	if metricsCertWatcher != nil {
