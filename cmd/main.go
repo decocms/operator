@@ -122,6 +122,10 @@ func main() {
 	flag.StringVar(&operatorAPIAddr, "operator-api-addr",
 		getEnvOrDefault("OPERATOR_API_ADDR", ":9090"),
 		"Address for the operator management HTTP API.")
+	var redirectNamespace string
+	flag.StringVar(&redirectNamespace, "redirect-namespace",
+		getEnvOrDefault("REDIRECT_NAMESPACE", "deco-redirect-system"),
+		"Default namespace for RedirectDomain resources.")
 
 	var redirectIngressClass string
 	var redirectClusterIssuer string
@@ -374,7 +378,7 @@ func main() {
 	apiUser := os.Getenv("OPERATOR_API_USER")
 	apiPass := os.Getenv("OPERATOR_API_PASSWORD")
 	if apiUser != "" && apiPass != "" {
-		h := api.NewHandlers(mgr.GetClient())
+		h := api.NewHandlers(mgr.GetClient(), redirectNamespace)
 		if err := mgr.Add(api.NewServer(operatorAPIAddr, apiUser, apiPass, h)); err != nil {
 			setupLog.Error(err, "unable to add operator API server")
 			os.Exit(1)

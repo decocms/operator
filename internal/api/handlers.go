@@ -12,16 +12,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const defaultNamespace = "deco-redirect-system"
-
 var domainRe = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$`)
 
 type Handlers struct {
-	client client.Client
+	client           client.Client
+	defaultNamespace string
 }
 
-func NewHandlers(c client.Client) *Handlers {
-	return &Handlers{client: c}
+func NewHandlers(c client.Client, defaultNamespace string) *Handlers {
+	return &Handlers{client: c, defaultNamespace: defaultNamespace}
 }
 
 type redirectRequest struct {
@@ -45,7 +44,7 @@ func (h *Handlers) create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "'to' is required", http.StatusBadRequest)
 		return
 	}
-	ns := nsOrDefault(req.Namespace)
+	ns := h.nsOrDefault(req.Namespace)
 
 	rd := &decositesv1alpha1.RedirectDomain{
 		ObjectMeta: metav1.ObjectMeta{
@@ -70,7 +69,7 @@ func (h *Handlers) create(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) delete(w http.ResponseWriter, r *http.Request) {
 	domain := domainToName(strings.ToLower(strings.TrimSpace(r.PathValue("domain"))))
-	ns := nsOrDefault(r.URL.Query().Get("namespace"))
+	ns := h.nsOrDefault(r.URL.Query().Get("namespace"))
 
 	rd := &decositesv1alpha1.RedirectDomain{
 		ObjectMeta: metav1.ObjectMeta{Name: domain, Namespace: ns},
@@ -83,7 +82,7 @@ func (h *Handlers) delete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) list(w http.ResponseWriter, r *http.Request) {
-	ns := nsOrDefault(r.URL.Query().Get("namespace"))
+	ns := h.nsOrDefault(r.URL.Query().Get("namespace"))
 
 	list := &decositesv1alpha1.RedirectDomainList{}
 	if err := h.client.List(r.Context(), list, client.InNamespace(ns)); err != nil {
@@ -99,9 +98,9 @@ func domainToName(d string) string {
 	return strings.ReplaceAll(d, ".", "-")
 }
 
-func nsOrDefault(ns string) string {
+func (h *Handlers) nsOrDefault(ns string) string {
 	if ns == "" {
-		return defaultNamespace
+		return h.defaultNamespace
 	}
 	return ns
 }

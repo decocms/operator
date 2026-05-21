@@ -411,6 +411,9 @@ func addRedirectControllerArgs(templatesDir string) error {
 	args := `        {{- if .Values.redirect.ingressClass }}
         - --redirect-ingress-class={{ .Values.redirect.ingressClass }}
         - --redirect-cluster-issuer={{ .Values.redirect.clusterIssuer.name }}
+        {{- end }}
+        {{- if .Values.redirect.namespace }}
+        - --redirect-namespace={{ .Values.redirect.namespace }}
         {{- end }}`
 
 	anchor := `        - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs`
