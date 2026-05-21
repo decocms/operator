@@ -32,6 +32,32 @@ type redirectRequest struct {
 	Namespace string `json:"namespace,omitempty"`
 }
 
+type redirectResponse struct {
+	From             string `json:"from"`
+	To               string `json:"to"`
+	CertificateReady bool   `json:"certificateReady"`
+	Message          string `json:"message,omitempty"`
+	CreatedAt        string `json:"createdAt"`
+}
+
+func toResponse(rd *decositesv1alpha1.RedirectDomain) redirectResponse {
+	resp := redirectResponse{
+		From:      rd.Spec.From,
+		To:        rd.Spec.To,
+		CreatedAt: rd.CreationTimestamp.UTC().Format("2006-01-02T15:04:05Z"),
+	}
+	for _, c := range rd.Status.Conditions {
+		if c.Type == "CertificateReady" {
+			resp.CertificateReady = c.Status == "True"
+			if c.Status != "True" {
+				resp.Message = c.Message
+			}
+			break
+		}
+	}
+	return resp
+}
+
 func (h *Handlers) create(w http.ResponseWriter, r *http.Request) {
 	var req redirectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -91,7 +117,7 @@ func (h *Handlers) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(rd)
+	_ = json.NewEncoder(w).Encode(toResponse(rd))
 }
 
 func (h *Handlers) delete(w http.ResponseWriter, r *http.Request) {
@@ -125,8 +151,12 @@ func (h *Handlers) list(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	items := make([]redirectResponse, len(list.Items))
+	for i := range list.Items {
+		items[i] = toResponse(&list.Items[i])
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(list.Items)
+	_ = json.NewEncoder(w).Encode(items)
 }
 
 // domainToName converts a domain to a valid k8s resource name (dots → dashes).

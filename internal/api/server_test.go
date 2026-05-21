@@ -96,10 +96,13 @@ func TestGet_HappyPath(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
-	var item decositesv1alpha1.RedirectDomain
+	var item struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+	}
 	_ = json.NewDecoder(rec.Body).Decode(&item)
-	if item.Spec.From != "example.com" {
-		t.Fatalf("expected from=example.com, got %s", item.Spec.From)
+	if item.From != "example.com" {
+		t.Fatalf("expected from=example.com, got %s", item.From)
 	}
 }
 
@@ -138,7 +141,9 @@ func TestList_HappyPath(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
-	var items []decositesv1alpha1.RedirectDomain
+	var items []struct {
+		From string `json:"from"`
+	}
 	_ = json.NewDecoder(rec.Body).Decode(&items)
 	if len(items) != 1 {
 		t.Fatalf("expected 1 item, got %d", len(items))
