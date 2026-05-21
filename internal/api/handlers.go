@@ -73,7 +73,12 @@ func (h *Handlers) create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) get(w http.ResponseWriter, r *http.Request) {
-	domain := domainToName(strings.ToLower(strings.TrimSpace(r.PathValue("domain"))))
+	rawDomain := strings.ToLower(strings.TrimSpace(r.PathValue("domain")))
+	if !domainRe.MatchString(rawDomain) {
+		http.Error(w, "invalid domain", http.StatusBadRequest)
+		return
+	}
+	domain := domainToName(rawDomain)
 	ns := h.nsOrDefault(r.URL.Query().Get("namespace"))
 
 	rd := &decositesv1alpha1.RedirectDomain{}
@@ -90,7 +95,12 @@ func (h *Handlers) get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) delete(w http.ResponseWriter, r *http.Request) {
-	domain := domainToName(strings.ToLower(strings.TrimSpace(r.PathValue("domain"))))
+	rawDomain := strings.ToLower(strings.TrimSpace(r.PathValue("domain")))
+	if !domainRe.MatchString(rawDomain) {
+		http.Error(w, "invalid domain", http.StatusBadRequest)
+		return
+	}
+	domain := domainToName(rawDomain)
 	ns := h.nsOrDefault(r.URL.Query().Get("namespace"))
 
 	rd := &decositesv1alpha1.RedirectDomain{
