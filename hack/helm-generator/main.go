@@ -376,6 +376,12 @@ spec:
       - http01:
           ingress:
             ingressClassName: {{ .Values.redirect.ingressClass }}
+            {{- if .Values.redirect.clusterIssuer.solverAnnotations }}
+            ingressTemplate:
+              metadata:
+                annotations:
+                  {{- toYaml .Values.redirect.clusterIssuer.solverAnnotations | nindent 18 }}
+            {{- end }}
 {{- end }}
 `
 	return os.WriteFile(filepath.Join(templatesDir, "clusterissuer-letsencrypt.yaml"), []byte(content), 0644)
