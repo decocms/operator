@@ -72,6 +72,23 @@ func (h *Handlers) create(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 }
 
+func (h *Handlers) get(w http.ResponseWriter, r *http.Request) {
+	domain := domainToName(strings.ToLower(strings.TrimSpace(r.PathValue("domain"))))
+	ns := h.nsOrDefault(r.URL.Query().Get("namespace"))
+
+	rd := &decositesv1alpha1.RedirectDomain{}
+	if err := h.client.Get(r.Context(), client.ObjectKey{Name: domain, Namespace: ns}, rd); err != nil {
+		status := http.StatusInternalServerError
+		if apierrors.IsNotFound(err) {
+			status = http.StatusNotFound
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(rd)
+}
+
 func (h *Handlers) delete(w http.ResponseWriter, r *http.Request) {
 	domain := domainToName(strings.ToLower(strings.TrimSpace(r.PathValue("domain"))))
 	ns := h.nsOrDefault(r.URL.Query().Get("namespace"))

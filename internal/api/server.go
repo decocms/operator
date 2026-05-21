@@ -19,6 +19,7 @@ func NewServer(addr, user, pass string, h *Handlers) *Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /redirects", h.list)
 	mux.HandleFunc("POST /redirects", h.create)
+	mux.HandleFunc("GET /redirects/{domain}", h.get)
 	mux.HandleFunc("DELETE /redirects/{domain}", h.delete)
 	return &Server{
 		addr:    addr,

@@ -78,6 +78,48 @@ func TestDelete_HappyPath(t *testing.T) {
 	}
 }
 
+func TestGet_HappyPath(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = decositesv1alpha1.AddToScheme(scheme)
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&decositesv1alpha1.RedirectDomain{
+		ObjectMeta: metav1.ObjectMeta{Name: "example-com", Namespace: "deco-redirect-system"},
+		Spec:       decositesv1alpha1.RedirectDomainSpec{From: "example.com", To: "https://www.example.com"},
+	}).Build()
+	h := api.NewHandlers(fc, "deco-redirect-system")
+	srv := api.NewServer(":0", "user", "pass", h)
+
+	req := httptest.NewRequest(http.MethodGet, "/redirects/example.com", nil)
+	req.SetBasicAuth("user", "pass")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var item decositesv1alpha1.RedirectDomain
+	_ = json.NewDecoder(rec.Body).Decode(&item)
+	if item.Spec.From != "example.com" {
+		t.Fatalf("expected from=example.com, got %s", item.Spec.From)
+	}
+}
+
+func TestGet_NotFound(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = decositesv1alpha1.AddToScheme(scheme)
+	fc := fake.NewClientBuilder().WithScheme(scheme).Build()
+	h := api.NewHandlers(fc, "deco-redirect-system")
+	srv := api.NewServer(":0", "user", "pass", h)
+
+	req := httptest.NewRequest(http.MethodGet, "/redirects/notfound.com", nil)
+	req.SetBasicAuth("user", "pass")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
 func TestList_HappyPath(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)
