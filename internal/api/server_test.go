@@ -69,7 +69,7 @@ func TestDelete_HappyPath(t *testing.T) {
 	h := api.NewHandlers(fc, "deco-redirect-system")
 	srv := api.NewServer(":0", "user", "pass", h)
 
-	req := httptest.NewRequest(http.MethodDelete, "/redirects/example-com", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/redirects/example.com", nil)
 	req.SetBasicAuth("user", "pass")
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)

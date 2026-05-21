@@ -80,7 +80,11 @@ func (h *Handlers) delete(w http.ResponseWriter, r *http.Request) {
 		ObjectMeta: metav1.ObjectMeta{Name: domain, Namespace: ns},
 	}
 	if err := h.client.Delete(r.Context(), rd); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		status := http.StatusInternalServerError
+		if apierrors.IsNotFound(err) {
+			status = http.StatusNotFound
+		}
+		http.Error(w, err.Error(), status)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
