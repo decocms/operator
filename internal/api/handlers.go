@@ -40,7 +40,7 @@ type redirectResponse struct {
 	CreatedAt        string `json:"createdAt"`
 }
 
-func toResponse(rd *decositesv1alpha1.RedirectDomain) redirectResponse {
+func toResponse(rd *decositesv1alpha1.DecoRedirect) redirectResponse {
 	resp := redirectResponse{
 		From:      rd.Spec.From,
 		To:        rd.Spec.To,
@@ -75,12 +75,12 @@ func (h *Handlers) create(w http.ResponseWriter, r *http.Request) {
 	}
 	ns := h.nsOrDefault(req.Namespace)
 
-	rd := &decositesv1alpha1.RedirectDomain{
+	rd := &decositesv1alpha1.DecoRedirect{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      domainToName(from), // dots → dashes for k8s name
 			Namespace: ns,
 		},
-		Spec: decositesv1alpha1.RedirectDomainSpec{
+		Spec: decositesv1alpha1.DecoRedirectSpec{
 			From: from, // original domain preserved for CEL validation
 			To:   req.To,
 		},
@@ -107,7 +107,7 @@ func (h *Handlers) get(w http.ResponseWriter, r *http.Request) {
 	domain := domainToName(rawDomain)
 	ns := h.nsOrDefault(r.URL.Query().Get("namespace"))
 
-	rd := &decositesv1alpha1.RedirectDomain{}
+	rd := &decositesv1alpha1.DecoRedirect{}
 	if err := h.client.Get(r.Context(), client.ObjectKey{Name: domain, Namespace: ns}, rd); err != nil {
 		status := http.StatusInternalServerError
 		if apierrors.IsNotFound(err) {
@@ -129,7 +129,7 @@ func (h *Handlers) delete(w http.ResponseWriter, r *http.Request) {
 	domain := domainToName(rawDomain)
 	ns := h.nsOrDefault(r.URL.Query().Get("namespace"))
 
-	rd := &decositesv1alpha1.RedirectDomain{
+	rd := &decositesv1alpha1.DecoRedirect{
 		ObjectMeta: metav1.ObjectMeta{Name: domain, Namespace: ns},
 	}
 	if err := h.client.Delete(r.Context(), rd); err != nil {
@@ -146,7 +146,7 @@ func (h *Handlers) delete(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) list(w http.ResponseWriter, r *http.Request) {
 	ns := h.nsOrDefault(r.URL.Query().Get("namespace"))
 
-	list := &decositesv1alpha1.RedirectDomainList{}
+	list := &decositesv1alpha1.DecoRedirectList{}
 	if err := h.client.List(r.Context(), list, client.InNamespace(ns)); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

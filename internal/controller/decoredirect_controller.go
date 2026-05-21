@@ -23,8 +23,8 @@ import (
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
 )
 
-// RedirectDomainReconciler reconciles a RedirectDomain object.
-type RedirectDomainReconciler struct {
+// DecoRedirectReconciler reconciles a DecoRedirect object.
+type DecoRedirectReconciler struct {
 	client.Client
 	Scheme        *runtime.Scheme
 	IngressClass  string // nginx ingress class name, e.g. "nginx"
@@ -35,16 +35,16 @@ type RedirectDomainReconciler struct {
 // nginx never routes to it because permanent-redirect intercepts first.
 const dummyBackendName = "redirect-dummy-backend"
 
-// +kubebuilder:rbac:groups=deco.sites,resources=redirectdomains,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=deco.sites,resources=redirectdomains/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=deco.sites,resources=redirectdomains/finalizers,verbs=update
+// +kubebuilder:rbac:groups=deco.sites,resources=decoredict,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=deco.sites,resources=decoredict/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=deco.sites,resources=decoredict/finalizers,verbs=update
 // +kubebuilder:rbac:groups=cert-manager.io,resources=certificates,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
 
-func (r *RedirectDomainReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *DecoRedirectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	rd := &decositesv1alpha1.RedirectDomain{}
+	rd := &decositesv1alpha1.DecoRedirect{}
 	if err := r.Get(ctx, req.NamespacedName, rd); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -72,7 +72,7 @@ func (r *RedirectDomainReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ctrl.Result{}, nil
 }
 
-func (r *RedirectDomainReconciler) reconcileCertificate(ctx context.Context, rd *decositesv1alpha1.RedirectDomain) error {
+func (r *DecoRedirectReconciler) reconcileCertificate(ctx context.Context, rd *decositesv1alpha1.DecoRedirect) error {
 	cert := &cmv1.Certificate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      resourceName(rd.Spec.From),
@@ -95,7 +95,7 @@ func (r *RedirectDomainReconciler) reconcileCertificate(ctx context.Context, rd 
 	return err
 }
 
-func (r *RedirectDomainReconciler) reconcileIngress(ctx context.Context, rd *decositesv1alpha1.RedirectDomain) error {
+func (r *DecoRedirectReconciler) reconcileIngress(ctx context.Context, rd *decositesv1alpha1.DecoRedirect) error {
 	pathType := networkingv1.PathTypePrefix
 	ingress := &networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
@@ -147,7 +147,7 @@ func (r *RedirectDomainReconciler) reconcileIngress(ctx context.Context, rd *dec
 	return err
 }
 
-func (r *RedirectDomainReconciler) updateStatus(ctx context.Context, rd *decositesv1alpha1.RedirectDomain) (bool, error) {
+func (r *DecoRedirectReconciler) updateStatus(ctx context.Context, rd *decositesv1alpha1.DecoRedirect) (bool, error) {
 	certReady := false
 	cert := &cmv1.Certificate{}
 	if err := r.Get(ctx, types.NamespacedName{Name: resourceName(rd.Spec.From), Namespace: rd.Namespace}, cert); err != nil {
@@ -212,9 +212,9 @@ func sanitizeDomain(domain string) string {
 	return strings.NewReplacer(".", "-", "_", "-").Replace(domain)
 }
 
-func (r *RedirectDomainReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *DecoRedirectReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&decositesv1alpha1.RedirectDomain{}).
+		For(&decositesv1alpha1.DecoRedirect{}).
 		Owns(&cmv1.Certificate{}).
 		Owns(&networkingv1.Ingress{}).
 		Complete(r)

@@ -16,8 +16,8 @@ import (
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
 )
 
-var _ = Describe("RedirectDomain Controller", func() {
-	Context("When reconciling a RedirectDomain", func() {
+var _ = Describe("DecoRedirect Controller", func() {
+	Context("When reconciling a DecoRedirect", func() {
 		const (
 			rdName     = "test-redirect"
 			rdNS       = "default"
@@ -28,8 +28,8 @@ var _ = Describe("RedirectDomain Controller", func() {
 		ctx := context.Background()
 		nn := types.NamespacedName{Name: rdName, Namespace: rdNS}
 
-		newReconciler := func() *RedirectDomainReconciler {
-			return &RedirectDomainReconciler{
+		newReconciler := func() *DecoRedirectReconciler {
+			return &DecoRedirectReconciler{
 				Client:        k8sClient,
 				Scheme:        k8sClient.Scheme(),
 				IngressClass:  "nginx",
@@ -38,12 +38,12 @@ var _ = Describe("RedirectDomain Controller", func() {
 		}
 
 		BeforeEach(func() {
-			rd := &decositesv1alpha1.RedirectDomain{}
+			rd := &decositesv1alpha1.DecoRedirect{}
 			err := k8sClient.Get(ctx, nn, rd)
 			if err != nil && errors.IsNotFound(err) {
-				Expect(k8sClient.Create(ctx, &decositesv1alpha1.RedirectDomain{
+				Expect(k8sClient.Create(ctx, &decositesv1alpha1.DecoRedirect{
 					ObjectMeta: metav1.ObjectMeta{Name: rdName, Namespace: rdNS},
-					Spec: decositesv1alpha1.RedirectDomainSpec{
+					Spec: decositesv1alpha1.DecoRedirectSpec{
 						From: fromDomain,
 						To:   toDomain,
 					},
@@ -52,7 +52,7 @@ var _ = Describe("RedirectDomain Controller", func() {
 		})
 
 		AfterEach(func() {
-			rd := &decositesv1alpha1.RedirectDomain{}
+			rd := &decositesv1alpha1.DecoRedirect{}
 			Expect(k8sClient.Get(ctx, nn, rd)).To(Succeed())
 			Expect(k8sClient.Delete(ctx, rd)).To(Succeed())
 		})
@@ -91,7 +91,7 @@ var _ = Describe("RedirectDomain Controller", func() {
 			_, err := newReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
 
-			rd := &decositesv1alpha1.RedirectDomain{}
+			rd := &decositesv1alpha1.DecoRedirect{}
 			Expect(k8sClient.Get(ctx, nn, rd)).To(Succeed())
 
 			found := false
@@ -105,10 +105,10 @@ var _ = Describe("RedirectDomain Controller", func() {
 			Expect(found).To(BeTrue(), "CertificateReady condition should be present")
 		})
 
-		It("should reject a RedirectDomain whose 'to' is outside the 'from' domain", func() {
-			err := k8sClient.Create(ctx, &decositesv1alpha1.RedirectDomain{
+		It("should reject a DecoRedirect whose 'to' is outside the 'from' domain", func() {
+			err := k8sClient.Create(ctx, &decositesv1alpha1.DecoRedirect{
 				ObjectMeta: metav1.ObjectMeta{Name: "invalid-redirect", Namespace: rdNS},
-				Spec: decositesv1alpha1.RedirectDomainSpec{
+				Spec: decositesv1alpha1.DecoRedirectSpec{
 					From: "client.com",
 					To:   "https://www.other.com",
 				},

@@ -3,14 +3,14 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.18.0
-  name: redirectdomains.deco.sites
+  name: decoredict.deco.sites
 spec:
   group: deco.sites
   names:
-    kind: RedirectDomain
-    listKind: RedirectDomainList
-    plural: redirectdomains
-    singular: redirectdomain
+    kind: DecoRedirect
+    listKind: DecoRedirectList
+    plural: decoredict
+    singular: decoredirect
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -26,7 +26,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: RedirectDomain manages a TLS-terminated apex redirect via cert-manager
+        description: DecoRedirect manages a TLS-terminated apex redirect via cert-manager
           and nginx Ingress.
         properties:
           apiVersion:
@@ -47,7 +47,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: RedirectDomainSpec defines the desired state of RedirectDomain.
+            description: DecoRedirectSpec defines the desired state of DecoRedirect.
             properties:
               from:
                 description: From is the apex domain to redirect (e.g. "client.com").
@@ -71,10 +71,10 @@ spec:
                 (e.g. from: client.com → to: https://www.client.com)'
               rule: (self.to+'/').contains('.'+self.from+'/') || (self.to+'/').contains('//'+self.from+'/')
           status:
-            description: RedirectDomainStatus defines the observed state of RedirectDomain.
+            description: DecoRedirectStatus defines the observed state of DecoRedirect.
             properties:
               conditions:
-                description: Conditions represent the latest observations of the RedirectDomain's
+                description: Conditions represent the latest observations of the DecoRedirect's
                   state.
                 items:
                   description: Condition contains details for one aspect of the current

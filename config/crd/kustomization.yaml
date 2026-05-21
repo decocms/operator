@@ -4,7 +4,7 @@
 resources:
 - bases/deco.sites_decos.yaml
 - bases/deco.sites_decofiles.yaml
-- bases/deco.sites_redirectdomains.yaml
+- bases/deco.sites_decoredict.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

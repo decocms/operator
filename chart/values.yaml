@@ -117,7 +117,7 @@ build:
   tolerations: []       # Default tolerations for build pods (overridable per-site via spec.build.tolerations)
 
 # ── Operator Management API ──────────────────────────────────────────────────
-# General HTTP API for managing operator resources (RedirectDomains, etc.).
+# General HTTP API for managing operator resources (DecoRedirects, etc.).
 # Enabled when username+password (or existingSecret) are set.
 # Set hostname to auto-create an Ingress+Certificate via the cluster default ingress.
 operatorApi:
@@ -129,10 +129,10 @@ operatorApi:
 
 # ── Domain Redirect ──────────────────────────────────────────────────────────
 # Application-level redirect config — all features are opt-in.
-# Set ingressClass to enable RedirectDomain reconciliation.
+# Set ingressClass to enable DecoRedirect reconciliation.
 redirect:
   namespace: "deco-redirect-system"
-  ingressClass: ""          # set to enable RedirectDomain controller (e.g. "redirect-nginx")
+  ingressClass: ""          # set to enable DecoRedirect controller (e.g. "redirect-nginx")
   clusterIssuer:
     enabled: false          # set true to create the Let's Encrypt ClusterIssuer
     name: ""                # ClusterIssuer name (e.g. "letsencrypt")

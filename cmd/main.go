@@ -125,13 +125,13 @@ func main() {
 	var redirectNamespace string
 	flag.StringVar(&redirectNamespace, "redirect-namespace",
 		getEnvOrDefault("REDIRECT_NAMESPACE", "deco-redirect-system"),
-		"Default namespace for RedirectDomain resources.")
+		"Default namespace for DecoRedirect resources.")
 
 	var redirectIngressClass string
 	var redirectClusterIssuer string
 	flag.StringVar(&redirectIngressClass, "redirect-ingress-class",
 		getEnvOrDefault("REDIRECT_INGRESS_CLASS", "nginx"),
-		"IngressClass name for RedirectDomain Ingress resources.")
+		"IngressClass name for DecoRedirect Ingress resources.")
 	flag.StringVar(&redirectClusterIssuer, "redirect-cluster-issuer",
 		getEnvOrDefault("REDIRECT_CLUSTER_ISSUER", "letsencrypt"),
 		"cert-manager ClusterIssuer name (matches redirect.clusterIssuer.name in values).")
@@ -366,13 +366,13 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Deco")
 		os.Exit(1)
 	}
-	if err := (&controller.RedirectDomainReconciler{
+	if err := (&controller.DecoRedirectReconciler{
 		Client:        mgr.GetClient(),
 		Scheme:        mgr.GetScheme(),
 		IngressClass:  redirectIngressClass,
 		ClusterIssuer: redirectClusterIssuer,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "RedirectDomain")
+		setupLog.Error(err, "unable to create controller", "controller", "DecoRedirect")
 		os.Exit(1)
 	}
 	apiUser := os.Getenv("OPERATOR_API_USER")
