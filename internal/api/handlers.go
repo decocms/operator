@@ -20,6 +20,9 @@ type Handlers struct {
 }
 
 func NewHandlers(c client.Client, defaultNamespace string) *Handlers {
+	if defaultNamespace == "" {
+		defaultNamespace = "deco-redirect-system"
+	}
 	return &Handlers{client: c, defaultNamespace: defaultNamespace}
 }
 
