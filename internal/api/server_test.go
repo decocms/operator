@@ -58,6 +58,30 @@ func TestCreate_HappyPath(t *testing.T) {
 	}
 }
 
+func TestCreate_NormalizesToScheme(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = decositesv1alpha1.AddToScheme(scheme)
+	fc := fake.NewClientBuilder().WithScheme(scheme).Build()
+	h := api.NewHandlers(fc, "deco-redirect-system")
+	srv := api.NewServer(":0", "user", "pass", h)
+
+	body, _ := json.Marshal(map[string]string{"from": "example.com", "to": "www.example.com"})
+	req := httptest.NewRequest(http.MethodPost, "/redirects", bytes.NewReader(body))
+	req.SetBasicAuth("user", "pass")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	list := &decositesv1alpha1.DecoRedirectList{}
+	_ = fc.List(context.Background(), list)
+	if list.Items[0].Spec.To != "https://www.example.com" {
+		t.Fatalf("expected to=https://www.example.com, got %s", list.Items[0].Spec.To)
+	}
+}
+
 func TestDelete_HappyPath(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)

@@ -69,9 +69,13 @@ func (h *Handlers) create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid domain in 'from'", http.StatusBadRequest)
 		return
 	}
-	if req.To == "" {
+	to := strings.TrimSpace(req.To)
+	if to == "" {
 		http.Error(w, "'to' is required", http.StatusBadRequest)
 		return
+	}
+	if !strings.HasPrefix(to, "http://") && !strings.HasPrefix(to, "https://") {
+		to = "https://" + to
 	}
 	ns := h.nsOrDefault(req.Namespace)
 
@@ -82,7 +86,7 @@ func (h *Handlers) create(w http.ResponseWriter, r *http.Request) {
 		},
 		Spec: decositesv1alpha1.DecoRedirectSpec{
 			From: from, // original domain preserved for CEL validation
-			To:   req.To,
+			To:   to,
 		},
 	}
 	if err := h.client.Create(r.Context(), rd); err != nil {
