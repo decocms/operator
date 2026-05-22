@@ -121,6 +121,7 @@ rules:
 - apiGroups:
   - serving.knative.dev
   resources:
+  - revisions
   - services
   verbs:
   - get
