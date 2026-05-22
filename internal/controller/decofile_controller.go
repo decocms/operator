@@ -27,16 +27,26 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
+	servingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
 )
 
 const condTypePodsNotified = "PodsNotified"
+
+// deploymentIdLabel is declared in notifier.go (same package).
 
 // DecofileReconciler reconciles a Decofile object
 type DecofileReconciler struct {
@@ -53,6 +63,7 @@ type DecofileReconciler struct {
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=serving.knative.dev,resources=revisions,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -79,6 +90,13 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	log.V(1).Info("Fetched Decofile", "duration", time.Since(fetchStart))
+
+	// Sync Revision ownerReferences so deletion cascades when the Knative
+	// Revision referencing this Decofile is garbage-collected.
+	// Non-fatal: failures are logged but don't block reconcile.
+	if err := r.syncRevisionOwnerRefs(ctx, decofile); err != nil {
+		log.Error(err, "Failed to sync Revision ownerReferences (non-fatal)")
+	}
 
 	// Define the ConfigMap name
 	configMapName := decofile.ConfigMapName()
@@ -384,11 +402,148 @@ func updateCondition(decofile *decositesv1alpha1.Decofile, newCondition metav1.C
 	decofile.Status.Conditions = append(decofile.Status.Conditions, newCondition)
 }
 
+// syncRevisionOwnerRefs ensures the Decofile carries an ownerReference for
+// every Knative Revision in the same namespace that targets it (matched via
+// the app.deco/deploymentId label). When the Revision is later deleted —
+// either by Knative GC (maxNonActiveRevisions) or by the knative-clean-*
+// CronJobs — Kubernetes garbage collection cascades through Revision ->
+// Decofile -> ConfigMap, so we never accumulate orphaned configuration.
+//
+// Multiple matching Revisions (e.g. during a rollback that reuses a
+// deploymentId) all become owners; the Decofile is only GC'd once every
+// owner Revision is gone. Stale UIDs are cleaned by Kubernetes GC on its
+// own — we never remove ownerReferences here.
+func (r *DecofileReconciler) syncRevisionOwnerRefs(ctx context.Context, decofile *decositesv1alpha1.Decofile) error {
+	log := logf.FromContext(ctx)
+
+	deploymentId := decofile.Spec.DeploymentId
+	if deploymentId == "" {
+		deploymentId = decofile.Name
+	}
+
+	revs := &servingv1.RevisionList{}
+	if err := r.List(ctx, revs,
+		client.InNamespace(decofile.Namespace),
+		client.MatchingLabels{deploymentIdLabel: deploymentId},
+	); err != nil {
+		return fmt.Errorf("list revisions for deploymentId=%s: %w", deploymentId, err)
+	}
+	if len(revs.Items) == 0 {
+		return nil
+	}
+
+	existingUIDs := make(map[types.UID]bool, len(decofile.OwnerReferences))
+	for _, or := range decofile.OwnerReferences {
+		existingUIDs[or.UID] = true
+	}
+
+	var toAdd []metav1.OwnerReference
+	for i := range revs.Items {
+		rev := &revs.Items[i]
+		if rev.DeletionTimestamp != nil {
+			continue
+		}
+		if existingUIDs[rev.UID] {
+			continue
+		}
+		toAdd = append(toAdd, metav1.OwnerReference{
+			APIVersion:         servingv1.SchemeGroupVersion.String(),
+			Kind:               "Revision",
+			Name:               rev.Name,
+			UID:                rev.UID,
+			Controller:         ptr.To(false),
+			BlockOwnerDeletion: ptr.To(false),
+		})
+	}
+	if len(toAdd) == 0 {
+		return nil
+	}
+
+	// Refetch + re-diff against the latest version to avoid optimistic
+	// concurrency conflicts with status updates that happen later in
+	// the reconcile loop.
+	fresh := &decositesv1alpha1.Decofile{}
+	if err := r.Get(ctx, client.ObjectKey{Name: decofile.Name, Namespace: decofile.Namespace}, fresh); err != nil {
+		return fmt.Errorf("refetch decofile: %w", err)
+	}
+	freshUIDs := make(map[types.UID]bool, len(fresh.OwnerReferences))
+	for _, or := range fresh.OwnerReferences {
+		freshUIDs[or.UID] = true
+	}
+	var actualAdd []metav1.OwnerReference
+	for _, or := range toAdd {
+		if !freshUIDs[or.UID] {
+			actualAdd = append(actualAdd, or)
+		}
+	}
+	if len(actualAdd) == 0 {
+		return nil
+	}
+	fresh.OwnerReferences = append(fresh.OwnerReferences, actualAdd...)
+	if err := r.Update(ctx, fresh); err != nil {
+		return fmt.Errorf("update decofile owner refs: %w", err)
+	}
+
+	for _, or := range actualAdd {
+		log.Info("Added Revision as Decofile owner",
+			"decofile", decofile.Name, "revision", or.Name, "uid", or.UID)
+	}
+	return nil
+}
+
+// mapRevisionToDecofile maps a Revision event to the Decofile that should be
+// reconciled because of it. Used by the Revision watch so that new Revisions
+// (created after their Decofile) still trigger ownerReference sync.
+func (r *DecofileReconciler) mapRevisionToDecofile(ctx context.Context, obj client.Object) []reconcile.Request {
+	rev, ok := obj.(*servingv1.Revision)
+	if !ok {
+		return nil
+	}
+	deploymentId := rev.Labels[deploymentIdLabel]
+	if deploymentId == "" {
+		return nil
+	}
+	decofiles := &decositesv1alpha1.DecofileList{}
+	if err := r.List(ctx, decofiles, client.InNamespace(rev.Namespace)); err != nil {
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range decofiles.Items {
+		df := &decofiles.Items[i]
+		depId := df.Spec.DeploymentId
+		if depId == "" {
+			depId = df.Name
+		}
+		if depId == deploymentId {
+			reqs = append(reqs, reconcile.Request{
+				NamespacedName: client.ObjectKey{Namespace: df.Namespace, Name: df.Name},
+			})
+		}
+	}
+	return reqs
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *DecofileReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Only react to Revision Create — Updates and Deletes don't add new
+	// ownerRef linkage information (Kubernetes GC already handles deletes
+	// via existing ownerReferences). Skipping them keeps the controller
+	// from spinning on Status churn of running Revisions.
+	revisionCreateOnly := predicate.Funcs{
+		CreateFunc:  func(_ event.CreateEvent) bool { return true },
+		UpdateFunc:  func(_ event.UpdateEvent) bool { return false },
+		DeleteFunc:  func(_ event.DeleteEvent) bool { return false },
+		GenericFunc: func(_ event.GenericEvent) bool { return false },
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&decositesv1alpha1.Decofile{}).
 		Owns(&corev1.ConfigMap{}).
+		Watches(
+			&servingv1.Revision{},
+			handler.EnqueueRequestsFromMapFunc(r.mapRevisionToDecofile),
+			builder.WithPredicates(revisionCreateOnly),
+		).
 		Named("decofile").
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: 8, // Allow 8 parallel reconciliations
