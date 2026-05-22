@@ -437,7 +437,7 @@ func (r *DecofileReconciler) syncRevisionOwnerRefs(ctx context.Context, decofile
 		existingUIDs[or.UID] = true
 	}
 
-	var toAdd []metav1.OwnerReference
+	toAdd := make([]metav1.OwnerReference, 0, len(revs.Items))
 	for i := range revs.Items {
 		rev := &revs.Items[i]
 		if rev.DeletionTimestamp != nil {

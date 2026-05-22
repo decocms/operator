@@ -43,22 +43,24 @@ func newOwnerTestScheme(t *testing.T) *runtime.Scheme {
 	return s
 }
 
-func makeRevision(name, namespace, deploymentId string, uid types.UID) *servingv1.Revision {
+const testNamespace = "sites-foo"
+
+func makeRevision(name, deploymentId string, uid types.UID) *servingv1.Revision {
 	return &servingv1.Revision{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: namespace,
+			Namespace: testNamespace,
 			UID:       uid,
 			Labels:    map[string]string{deploymentIdLabel: deploymentId},
 		},
 	}
 }
 
-func makeDecofile(name, namespace, deploymentId string) *decositesv1alpha1.Decofile {
+func makeDecofile(name, deploymentId string) *decositesv1alpha1.Decofile {
 	df := &decositesv1alpha1.Decofile{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: namespace,
+			Namespace: testNamespace,
 		},
 	}
 	if deploymentId != "" {
@@ -71,8 +73,8 @@ func TestSyncRevisionOwnerRefs_AddsOwnerWhenRevisionExists(t *testing.T) {
 	ctx := context.Background()
 	scheme := newOwnerTestScheme(t)
 
-	df := makeDecofile("mhsygflbgo", "sites-foo", "")
-	rev := makeRevision("foo-site-mhsygflbgo", "sites-foo", "mhsygflbgo", "rev-uid-1")
+	df := makeDecofile("mhsygflbgo", "")
+	rev := makeRevision("foo-site-mhsygflbgo", "mhsygflbgo", "rev-uid-1")
 
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(df, rev).Build()
 	r := &DecofileReconciler{Client: c, Scheme: scheme}
@@ -104,9 +106,9 @@ func TestSyncRevisionOwnerRefs_NoMatchingRevisionDoesNothing(t *testing.T) {
 	ctx := context.Background()
 	scheme := newOwnerTestScheme(t)
 
-	df := makeDecofile("orphan", "sites-foo", "")
+	df := makeDecofile("orphan", "")
 	// Revision with DIFFERENT deploymentId — must not be picked up.
-	rev := makeRevision("foo-site-other", "sites-foo", "other", "rev-uid-2")
+	rev := makeRevision("foo-site-other", "other", "rev-uid-2")
 
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(df, rev).Build()
 	r := &DecofileReconciler{Client: c, Scheme: scheme}
@@ -128,8 +130,8 @@ func TestSyncRevisionOwnerRefs_IsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	scheme := newOwnerTestScheme(t)
 
-	df := makeDecofile("mhsygflbgo", "sites-foo", "")
-	rev := makeRevision("foo-site-mhsygflbgo", "sites-foo", "mhsygflbgo", "rev-uid-3")
+	df := makeDecofile("mhsygflbgo", "")
+	rev := makeRevision("foo-site-mhsygflbgo", "mhsygflbgo", "rev-uid-3")
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(df, rev).Build()
 	r := &DecofileReconciler{Client: c, Scheme: scheme}
 
@@ -152,8 +154,8 @@ func TestSyncRevisionOwnerRefs_SkipsRevisionBeingDeleted(t *testing.T) {
 	ctx := context.Background()
 	scheme := newOwnerTestScheme(t)
 
-	df := makeDecofile("mhsygflbgo", "sites-foo", "")
-	rev := makeRevision("foo-site-mhsygflbgo", "sites-foo", "mhsygflbgo", "rev-uid-4")
+	df := makeDecofile("mhsygflbgo", "")
+	rev := makeRevision("foo-site-mhsygflbgo", "mhsygflbgo", "rev-uid-4")
 	now := metav1.Now()
 	rev.DeletionTimestamp = &now
 	rev.Finalizers = []string{"keep-alive-for-test"}
@@ -178,10 +180,10 @@ func TestSyncRevisionOwnerRefs_MultipleRevisionsBecomeMultipleOwners(t *testing.
 	ctx := context.Background()
 	scheme := newOwnerTestScheme(t)
 
-	df := makeDecofile("mhsygflbgo", "sites-foo", "")
+	df := makeDecofile("mhsygflbgo", "")
 	// Two Revisions with the same deploymentId (rollback scenario).
-	rev1 := makeRevision("foo-site-mhsygflbgo-old", "sites-foo", "mhsygflbgo", "uid-old")
-	rev2 := makeRevision("foo-site-mhsygflbgo-new", "sites-foo", "mhsygflbgo", "uid-new")
+	rev1 := makeRevision("foo-site-mhsygflbgo-old", "mhsygflbgo", "uid-old")
+	rev2 := makeRevision("foo-site-mhsygflbgo-new", "mhsygflbgo", "uid-new")
 
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(df, rev1, rev2).Build()
 	r := &DecofileReconciler{Client: c, Scheme: scheme}
@@ -211,11 +213,11 @@ func TestSyncRevisionOwnerRefs_RespectsExplicitDeploymentId(t *testing.T) {
 	scheme := newOwnerTestScheme(t)
 
 	// Decofile name and explicit deploymentId differ — the explicit one wins.
-	df := makeDecofile("any-name", "sites-foo", "explicit-dep")
-	rev := makeRevision("rev-by-explicit", "sites-foo", "explicit-dep", "uid-explicit")
+	df := makeDecofile("any-name", "explicit-dep")
+	rev := makeRevision("rev-by-explicit", "explicit-dep", "uid-explicit")
 	// Decoy Revision with deploymentId matching the Decofile name — must NOT
 	// be picked up because spec.deploymentId is set.
-	decoy := makeRevision("rev-decoy", "sites-foo", "any-name", "uid-decoy")
+	decoy := makeRevision("rev-decoy", "any-name", "uid-decoy")
 
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(df, rev, decoy).Build()
 	r := &DecofileReconciler{Client: c, Scheme: scheme}
@@ -241,8 +243,8 @@ func TestMapRevisionToDecofile_FindsByDefaultedDeploymentId(t *testing.T) {
 	scheme := newOwnerTestScheme(t)
 
 	// Decofile uses metadata.name as effective deploymentId (spec.deploymentId empty).
-	df := makeDecofile("mhsygflbgo", "sites-foo", "")
-	rev := makeRevision("foo-site-mhsygflbgo", "sites-foo", "mhsygflbgo", "uid")
+	df := makeDecofile("mhsygflbgo", "")
+	rev := makeRevision("foo-site-mhsygflbgo", "mhsygflbgo", "uid")
 
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(df, rev).Build()
 	r := &DecofileReconciler{Client: c, Scheme: scheme}
@@ -261,7 +263,7 @@ func TestMapRevisionToDecofile_IgnoresRevisionWithoutLabel(t *testing.T) {
 	ctx := context.Background()
 	scheme := newOwnerTestScheme(t)
 
-	df := makeDecofile("mhsygflbgo", "sites-foo", "")
+	df := makeDecofile("mhsygflbgo", "")
 	rev := &servingv1.Revision{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "no-label",
@@ -284,8 +286,8 @@ func TestMapRevisionToDecofile_FindsByExplicitDeploymentId(t *testing.T) {
 	ctx := context.Background()
 	scheme := newOwnerTestScheme(t)
 
-	df := makeDecofile("any-name", "sites-foo", "explicit-dep")
-	rev := makeRevision("rev", "sites-foo", "explicit-dep", "uid")
+	df := makeDecofile("any-name", "explicit-dep")
+	rev := makeRevision("rev", "explicit-dep", "uid")
 
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(df, rev).Build()
 	r := &DecofileReconciler{Client: c, Scheme: scheme}
