@@ -1,0 +1,5 @@
+{{- if and .Values.redirect.decoHeader.enabled (eq (index .Values "ingress-nginx" "controller" "config" "add-headers") "") }}
+WARNING: redirect.decoHeader.enabled is true but ingress-nginx.controller.config.add-headers
+is not set. The X-Redirect-By header will not be added until you also set:
+  ingress-nginx.controller.config.add-headers: "{{ .Values.redirect.namespace }}/deco-custom-headers"
+{{- end }}
