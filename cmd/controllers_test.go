@@ -13,13 +13,7 @@ func TestParseControllers_Star(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	for _, name := range []string{
-		controller.NamespaceControllerName,
-		controller.DecofileControllerName,
-		controller.DecoControllerName,
-		controller.DecoRedirectControllerName,
-		api.ControllerName,
-	} {
+	for _, name := range knownControllers {
 		if !enabled(name) {
 			t.Errorf("expected %q to be enabled with *, but it wasn't", name)
 		}

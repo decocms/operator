@@ -20,14 +20,18 @@ var knownControllers = []string{
 // parseControllers parses a comma-separated list of controller names.
 // "*" enables all known controllers.
 // Returns an error if any name is not in knownControllers.
-func parseControllers(flag string) (func(string) bool, error) {
-	if strings.TrimSpace(flag) == "*" {
+func parseControllers(input string) (func(string) bool, error) {
+	if strings.TrimSpace(input) == "*" {
 		return func(string) bool { return true }, nil
 	}
-	parts := strings.Split(flag, ",")
+	parts := strings.Split(input, ",")
 	set := make(map[string]bool, len(parts))
 	for _, name := range parts {
 		name = strings.TrimSpace(name)
+		if name == "" {
+			return nil, fmt.Errorf("controller name must not be empty; valid values: %s",
+				strings.Join(knownControllers, ", "))
+		}
 		if !slices.Contains(knownControllers, name) {
 			return nil, fmt.Errorf("unknown controller %q; valid values: %s",
 				name, strings.Join(knownControllers, ", "))
