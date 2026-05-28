@@ -57,25 +57,32 @@ ingress.Annotations = map[string]string{
 
 `permanent-redirect-code` is a per-Ingress annotation — each client's Ingress carries its own value, so 301 and 307 clients coexist without conflict.
 
-### 3. Header — Helm chart changes
+### 3. Header — Helm chart changes (opt-in)
 
-**New ConfigMap** (added as `extraObjects` in the chart):
+This is an open-source chart. The header feature must be opt-in, parallel to `ingress-nginx.enabled`. A new value gates both the ConfigMap and the nginx config entry:
 
 ```yaml
+# values.yaml
+redirect:
+  decoHeader:
+    enabled: true  # set to false to disable X-Redirect-By header
+```
+
+**New ConfigMap** (rendered conditionally in the chart):
+
+```yaml
+{{- if .Values.redirect.decoHeader.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: deco-custom-headers
-  namespace: deco-redirect-system
+  namespace: {{ .Values.redirect.namespace }}
 data:
   X-Redirect-By: "deco"
+{{- end }}
 ```
 
-**nginx values** (in `ingress-nginx.controller.config`):
-
-```yaml
-add-headers: "deco-redirect-system/deco-custom-headers"
-```
+**nginx values** — the `add-headers` key is only injected when the feature is enabled. This is done by merging it into `ingress-nginx.controller.config` conditionally in the chart templates, not in `values.yaml`, so that consumers who set `redirect.decoHeader.enabled: false` are not affected.
 
 The nginx ingress controller reads the ConfigMap at startup and appends the headers to every response. Since this nginx instance is exclusively used for Deco redirects, a global header is correct behavior.
 
@@ -119,7 +126,7 @@ Invalid values (`302`, `308`, etc.) return `422 Unprocessable Entity` from the A
 | `internal/api/handlers.go` | Add `redirectCode` to `redirectRequest` and `redirectResponse`; pass through in `create`; render in `toResponse` |
 | `internal/controller/decoredirect_controller_test.go` | Update/add tests for redirect code annotation |
 | `internal/api/server_test.go` | Update/add tests for redirectCode in request/response |
-| `chart/` | Add `deco-custom-headers` ConfigMap in `extraObjects`; add `add-headers` to nginx config values |
+| `chart/` | Add conditional ConfigMap template for `deco-custom-headers`; add `redirect.decoHeader.enabled` value; conditionally inject `add-headers` into nginx controller config |
 | `config/crd/bases/` | Regenerate via `make generate manifests` |
 
 ---
