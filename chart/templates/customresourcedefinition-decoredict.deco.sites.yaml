@@ -55,6 +55,15 @@ spec:
                 minLength: 1
                 pattern: ^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$
                 type: string
+              redirectCode:
+                default: 307
+                description: |-
+                  RedirectCode is the HTTP status code used for the redirect. Allowed values: 301, 307.
+                  Defaults to 307 (Temporary Redirect) if not set.
+                enum:
+                - 301
+                - 307
+                type: integer
               to:
                 description: To is the full target URL within the same domain (e.g.
                   "https://www.client.com").

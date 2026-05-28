@@ -117,6 +117,20 @@ var _ = Describe("DecoRedirect Controller", func() {
 			Expect(err.Error()).To(ContainSubstring("redirect target must be within the same domain"))
 		})
 
+		It("should reject a DecoRedirect with an invalid redirectCode", func() {
+			invalidCode := 302
+			err := k8sClient.Create(ctx, &decositesv1alpha1.DecoRedirect{
+				ObjectMeta: metav1.ObjectMeta{Name: "invalid-code", Namespace: rdNS},
+				Spec: decositesv1alpha1.DecoRedirectSpec{
+					From:         "invalid-code.com",
+					To:           "https://www.invalid-code.com",
+					RedirectCode: &invalidCode,
+				},
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("redirectCode"))
+		})
+
 		It("should not create duplicate Certificate on repeated reconcile", func() {
 			_, err := newReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())

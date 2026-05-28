@@ -22,6 +22,13 @@ type DecoRedirectSpec struct {
 	// +kubebuilder:validation:MaxLength=2048
 	// +kubebuilder:validation:Pattern=`^https?://`
 	To string `json:"to"`
+
+	// RedirectCode is the HTTP status code used for the redirect. Allowed values: 301, 307.
+	// Defaults to 307 (Temporary Redirect) if not set.
+	// +kubebuilder:validation:Enum=301;307
+	// +kubebuilder:default=307
+	// +optional
+	RedirectCode *int `json:"redirectCode,omitempty"`
 }
 
 // DecoRedirectStatus defines the observed state of DecoRedirect.
