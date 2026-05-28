@@ -97,6 +97,13 @@ podAnnotations: {}
 # Pod labels
 podLabels: {}
 
+# Controllers to enable at startup.
+# Use ["*"] to enable all (default — preserves existing behavior).
+# Valid values: namespace, decofile, deco, decoredirect, operator-api
+controllers:
+  enabled:
+    - "*"
+
 # Cloudflare Workers build support
 cfworkers:
   existingSecret: ""    # Secret with cf-api-token, cf-account-id
