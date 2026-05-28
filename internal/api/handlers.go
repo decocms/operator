@@ -93,6 +93,7 @@ func (h *Handlers) create(w http.ResponseWriter, r *http.Request) {
 			RedirectCode: req.RedirectCode,
 		},
 	}
+	// redirectCode enum validation (301|307) is enforced by the CRD schema; invalid values return 422.
 	if err := h.client.Create(r.Context(), rd); err != nil {
 		status := http.StatusInternalServerError
 		if apierrors.IsInvalid(err) {
