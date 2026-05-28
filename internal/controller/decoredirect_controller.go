@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -108,10 +109,16 @@ func (r *DecoRedirectReconciler) reconcileIngress(ctx context.Context, rd *decos
 		return err
 	}
 
-	// nginx returns 301 via the permanent-redirect annotation before reaching any backend.
+	code := 307
+	if rd.Spec.RedirectCode != nil {
+		code = *rd.Spec.RedirectCode
+	}
+
+	// nginx returns the configured redirect code (default 307) via the permanent-redirect annotation before reaching any backend.
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, ingress, func() error {
 		ingress.Annotations = map[string]string{
-			"nginx.ingress.kubernetes.io/permanent-redirect": rd.Spec.To,
+			"nginx.ingress.kubernetes.io/permanent-redirect":      rd.Spec.To,
+			"nginx.ingress.kubernetes.io/permanent-redirect-code": strconv.Itoa(code),
 		}
 		ingress.Spec = networkingv1.IngressSpec{
 			IngressClassName: &r.IngressClass,
