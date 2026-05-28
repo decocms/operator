@@ -1,0 +1,9 @@
+{{- if .Values.redirect.decoHeader.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: deco-custom-headers
+  namespace: {{ .Values.redirect.namespace }}
+data:
+  X-Redirect-By: {{ .Values.redirect.decoHeader.value | quote }}
+{{- end }}

@@ -146,6 +146,9 @@ redirect:
     email: ""               # required by Let's Encrypt ACME
     staging: false          # set true to use Let's Encrypt staging (avoids rate limits when testing)
     solverAnnotations: {}   # extra annotations on the HTTP-01 challenge Ingress (e.g. nginx.ingress.kubernetes.io/ssl-redirect: "false")
+  decoHeader:
+    enabled: false  # set true to add X-Redirect-By response header to all redirects served by this nginx instance
+    value: "deco"   # value for the X-Redirect-By header; override to use your own identifier
 
 # ingress-nginx subchart (opt-in) — set enabled: true to deploy nginx alongside the operator.
 # namespaceOverride isolates nginx from the operator namespace.
@@ -160,6 +163,10 @@ ingress-nginx:
       controllerValue: "k8s.io/redirect-nginx"
     service:
       annotations: {}
+    config:
+      # Set to "<redirect.namespace>/deco-custom-headers" when redirect.decoHeader.enabled=true.
+      # The ConfigMap is only created when redirect.decoHeader.enabled=true.
+      add-headers: ""
 
 # Name overrides
 nameOverride: ""
