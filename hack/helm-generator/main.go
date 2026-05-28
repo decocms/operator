@@ -403,14 +403,16 @@ spec:
 }
 
 func addRedirectCustomHeaders(templatesDir string) error {
-	content := `{{- if .Values.redirect.decoHeader.enabled }}
+	content := `{{- if and .Values.redirect.customHeaders.enabled .Values.redirect.customHeaders.headers }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: deco-custom-headers
+  name: redirect-custom-headers
   namespace: {{ .Values.redirect.namespace }}
 data:
-  X-Redirect-By: {{ .Values.redirect.decoHeader.value | quote }}
+  {{- range $key, $val := .Values.redirect.customHeaders.headers }}
+  {{ $key }}: {{ $val | quote }}
+  {{- end }}
 {{- end }}
 `
 	return os.WriteFile(filepath.Join(templatesDir, "configmap-redirect-custom-headers.yaml"), []byte(content), 0644)

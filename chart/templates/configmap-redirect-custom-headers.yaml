@@ -1,9 +1,11 @@
-{{- if .Values.redirect.decoHeader.enabled }}
+{{- if and .Values.redirect.customHeaders.enabled .Values.redirect.customHeaders.headers }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: deco-custom-headers
+  name: redirect-custom-headers
   namespace: {{ .Values.redirect.namespace }}
 data:
-  X-Redirect-By: {{ .Values.redirect.decoHeader.value | quote }}
+  {{- range $key, $val := .Values.redirect.customHeaders.headers }}
+  {{ $key }}: {{ $val | quote }}
+  {{- end }}
 {{- end }}

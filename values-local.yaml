@@ -1,0 +1,75 @@
+image:
+  repository: operator
+  tag: local
+  pullPolicy: Never
+
+replicaCount: 1
+
+
+redirect:
+  namespace: "deco-redirect-system"
+  ingressClass: "redirect-nginx"
+  clusterIssuer:
+    enabled: false
+    name: "letsencrypt"
+  customHeaders:
+    enabled: true
+    headers:
+      X-Redirect-By: "deco"
+
+ingress-nginx:
+  enabled: true
+  namespaceOverride: "deco-redirect-system"
+  controller:
+    ingressClass: redirect-nginx
+    ingressClassResource:
+      name: redirect-nginx
+      controllerValue: "k8s.io/redirect-nginx"
+    admissionWebhooks:
+      enabled: false
+    service:
+      annotations: {}
+    config:
+      add-headers: "deco-redirect-system/redirect-custom-headers"
+
+operatorApi:
+  addr: ":9090"
+  existingSecret: "operator-api-credentials"
+
+certManager:
+  enabled: false
+
+webhook:
+  enabled: false
+leaderElection:
+  enabled: false
+
+github:
+  existingSecret: deco-operator-github-token
+  existingSecretKey: token
+
+valkey:
+  sentinelUrls: ""
+
+cfworkers:
+  existingSecret: deco-operator-cfworkers
+  artifactsBucket: new-deco-cfworkers-deployments
+  builderImage: "igoramf/cfworkers-builder:v8"
+
+s3:
+  region: us-west-2
+  logsBucket: new-deco-sites-build-logs
+  stateBucket: new-deco-admin-states
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: "/metrics"
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
