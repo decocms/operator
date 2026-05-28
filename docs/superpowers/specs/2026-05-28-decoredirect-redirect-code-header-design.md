@@ -65,7 +65,8 @@ This is an open-source chart. The header feature must be opt-in, parallel to `in
 # values.yaml
 redirect:
   decoHeader:
-    enabled: true  # set to false to disable X-Redirect-By header
+    enabled: true   # set to false to disable X-Redirect-By header entirely
+    value: "deco"   # value for the X-Redirect-By header
 ```
 
 **New ConfigMap** (rendered conditionally in the chart):
@@ -78,7 +79,7 @@ metadata:
   name: deco-custom-headers
   namespace: {{ .Values.redirect.namespace }}
 data:
-  X-Redirect-By: "deco"
+  X-Redirect-By: {{ .Values.redirect.decoHeader.value | quote }}
 {{- end }}
 ```
 
