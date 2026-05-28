@@ -34,6 +34,7 @@ type DecoRedirectReconciler struct {
 // dummyBackendName satisfies the k8s Ingress API requirement for a backend on every path.
 // nginx never routes to it because permanent-redirect intercepts first.
 const dummyBackendName = "redirect-dummy-backend"
+const DecoRedirectControllerName = "decoredirect"
 
 // +kubebuilder:rbac:groups=deco.sites,resources=decoredict,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=deco.sites,resources=decoredict/status,verbs=get;update;patch

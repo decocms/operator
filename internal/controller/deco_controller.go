@@ -22,9 +22,10 @@ import (
 )
 
 const (
-	phaseRunning   = "Running"
-	phaseSucceeded = "Succeeded"
-	phaseFailed    = "Failed"
+	phaseRunning        = "Running"
+	phaseSucceeded      = "Succeeded"
+	phaseFailed         = "Failed"
+	DecoControllerName  = "deco"
 )
 
 // DecoReconciler reconciles Deco objects.
