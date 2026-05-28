@@ -437,7 +437,7 @@ func addControllersArg(templatesDir string) error {
 	if err != nil {
 		return err
 	}
-	arg := `        {{- if not (has "*" .Values.controllers.enabled) }}
+	arg := `        {{- if and .Values.controllers.enabled (not (has "*" .Values.controllers.enabled)) }}
         - --controllers={{ join "," .Values.controllers.enabled }}
         {{- end }}`
 	anchor := `        - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs`

@@ -31,7 +31,7 @@ spec:
         - --leader-elect
         - --health-probe-bind-address=:8081
         - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
-        {{- if not (has "*" .Values.controllers.enabled) }}
+        {{- if and .Values.controllers.enabled (not (has "*" .Values.controllers.enabled)) }}
         - --controllers={{ join "," .Values.controllers.enabled }}
         {{- end }}
         {{- if .Values.redirect.ingressClass }}
