@@ -407,7 +407,7 @@ func addRedirectCustomHeaders(templatesDir string) error {
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: redirect-custom-headers
+  name: redirect-response-headers
   namespace: {{ .Values.redirect.namespace }}
 data:
   {{- range $key, $val := .Values.redirect.customHeaders.headers }}

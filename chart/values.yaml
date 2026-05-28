@@ -168,7 +168,7 @@ ingress-nginx:
     service:
       annotations: {}
     config:
-      # Set to "<redirect.namespace>/redirect-custom-headers" when redirect.customHeaders.enabled=true.
+      # Set to "<redirect.namespace>/redirect-response-headers" when redirect.customHeaders.enabled=true.
       # The ConfigMap is only created when redirect.customHeaders.enabled=true.
       add-headers: ""
 
