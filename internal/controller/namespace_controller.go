@@ -41,12 +41,12 @@ import (
 )
 
 const (
-	valkeyACLAnnotation      = "deco.sites/valkey-acl"
-	valkeyACLFinalizer       = "deco.sites/valkey-acl"
-	valkeySecretName         = "valkey-acl"
-	siteNamespacePrefix      = "sites-"
-	valkeyReservedDefault    = "default"
-	NamespaceControllerName  = "namespace"
+	valkeyACLAnnotation     = "deco.sites/valkey-acl"
+	valkeyACLFinalizer      = "deco.sites/valkey-acl"
+	valkeySecretName        = "valkey-acl"
+	siteNamespacePrefix     = "sites-"
+	valkeyReservedDefault   = "default"
+	NamespaceControllerName = "namespace"
 )
 
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;update;patch

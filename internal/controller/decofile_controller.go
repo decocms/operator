@@ -45,8 +45,8 @@ import (
 )
 
 const (
-	condTypePodsNotified     = "PodsNotified"
-	DecofileControllerName   = "decofile"
+	condTypePodsNotified   = "PodsNotified"
+	DecofileControllerName = "decofile"
 )
 
 // deploymentIdLabel is declared in notifier.go (same package).
