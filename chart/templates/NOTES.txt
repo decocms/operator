@@ -1,5 +1,7 @@
-{{- if and .Values.redirect.decoHeader.enabled (eq (index .Values "ingress-nginx" "controller" "config" "add-headers") "") }}
-WARNING: redirect.decoHeader.enabled is true but ingress-nginx.controller.config.add-headers
-is not set. The X-Redirect-By header will not be added until you also set:
+{{- if .Values.redirect.decoHeader.enabled }}
+X-Redirect-By header is enabled. All apex redirect responses will include:
+  X-Redirect-By: {{ .Values.redirect.decoHeader.value }}
+
+To activate it, make sure the nginx controller is configured to read the header ConfigMap:
   ingress-nginx.controller.config.add-headers: "{{ .Values.redirect.namespace }}/deco-custom-headers"
 {{- end }}
