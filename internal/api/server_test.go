@@ -173,3 +173,64 @@ func TestList_HappyPath(t *testing.T) {
 		t.Fatalf("expected 1 item, got %d", len(items))
 	}
 }
+
+func TestCreate_WithRedirectCode(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = decositesv1alpha1.AddToScheme(scheme)
+	fc := fake.NewClientBuilder().WithScheme(scheme).Build()
+	h := api.NewHandlers(fc, "deco-redirect-system")
+	srv := api.NewServer(":0", "user", "pass", h)
+
+	code := 301
+	body, _ := json.Marshal(map[string]interface{}{"from": "example.com", "to": "https://www.example.com", "redirectCode": code})
+	req := httptest.NewRequest(http.MethodPost, "/redirects", bytes.NewReader(body))
+	req.SetBasicAuth("user", "pass")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	list := &decositesv1alpha1.DecoRedirectList{}
+	_ = fc.List(context.Background(), list)
+	if len(list.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(list.Items))
+	}
+	if list.Items[0].Spec.RedirectCode == nil || *list.Items[0].Spec.RedirectCode != 301 {
+		t.Fatalf("expected redirectCode=301, got %v", list.Items[0].Spec.RedirectCode)
+	}
+}
+
+func TestGet_IncludesRedirectCode(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = decositesv1alpha1.AddToScheme(scheme)
+	code := 301
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&decositesv1alpha1.DecoRedirect{
+		ObjectMeta: metav1.ObjectMeta{Name: "example-com", Namespace: "deco-redirect-system"},
+		Spec: decositesv1alpha1.DecoRedirectSpec{
+			From:         "example.com",
+			To:           "https://www.example.com",
+			RedirectCode: &code,
+		},
+	}).Build()
+	h := api.NewHandlers(fc, "deco-redirect-system")
+	srv := api.NewServer(":0", "user", "pass", h)
+
+	req := httptest.NewRequest(http.MethodGet, "/redirects/example.com", nil)
+	req.SetBasicAuth("user", "pass")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var item struct {
+		From         string `json:"from"`
+		RedirectCode *int   `json:"redirectCode"`
+	}
+	_ = json.NewDecoder(rec.Body).Decode(&item)
+	if item.RedirectCode == nil || *item.RedirectCode != 301 {
+		t.Fatalf("expected redirectCode=301 in response, got %v", item.RedirectCode)
+	}
+}
