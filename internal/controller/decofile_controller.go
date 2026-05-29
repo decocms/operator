@@ -44,7 +44,10 @@ import (
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
 )
 
-const condTypePodsNotified = "PodsNotified"
+const (
+	condTypePodsNotified   = "PodsNotified"
+	DecofileControllerName = "decofile"
+)
 
 // deploymentIdLabel is declared in notifier.go (same package).
 

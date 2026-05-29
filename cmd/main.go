@@ -135,6 +135,10 @@ func main() {
 	flag.StringVar(&redirectClusterIssuer, "redirect-cluster-issuer",
 		getEnvOrDefault("REDIRECT_CLUSTER_ISSUER", "letsencrypt"),
 		"cert-manager ClusterIssuer name (matches redirect.clusterIssuer.name in values).")
+	var controllersFlag string
+	flag.StringVar(&controllersFlag, "controllers", "*",
+		"Comma-separated list of controllers to enable. Use \"*\" to enable all. Valid values: "+
+			strings.Join(knownControllers, ", "))
 	opts := zap.Options{
 		Development: false,
 	}
@@ -142,6 +146,12 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	enabled, err := parseControllers(controllersFlag)
+	if err != nil {
+		setupLog.Error(err, "invalid --controllers flag")
+		os.Exit(1)
+	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -256,134 +266,133 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Build Valkey client. Falls back to a no-op client when Sentinel URLs are not configured
-	// so the operator works in environments where Valkey ACL provisioning is not needed.
-	var valkeyClient valkey.Client
-	switch {
-	case valkeyURL != "":
-		valkeyClient = valkey.NewDirectClient(valkeyURL, valkeyAdminPassword)
-		defer func() { _ = valkeyClient.Close() }()
-		setupLog.Info("Valkey ACL provisioning enabled (direct)", "addr", valkeyURL)
-	case valkeySentinelURLs != "":
-		valkeyClient = valkey.NewSentinelClient(valkey.Config{
-			SentinelAddrs: strings.Split(valkeySentinelURLs, ","),
-			MasterName:    valkeySentinelMaster,
-			AdminPassword: valkeyAdminPassword,
-		})
-		defer func() { _ = valkeyClient.Close() }()
-		setupLog.Info("Valkey ACL provisioning enabled (sentinel)",
-			"sentinel", valkeySentinelURLs, "master", valkeySentinelMaster)
-	default:
-		valkeyClient = valkey.NoopClient{}
-		setupLog.Info("Valkey ACL provisioning disabled (set VALKEY_URL or VALKEY_SENTINEL_URLS)")
-	}
-
-	nsReconciler := &controller.NamespaceReconciler{
-		Client:       mgr.GetClient(),
-		Scheme:       mgr.GetScheme(),
-		ValkeyClient: valkeyClient,
-		ResyncPeriod: valkeyResyncPeriod,
-	}
-	if err := nsReconciler.SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Namespace")
-		os.Exit(1)
-	}
-	// Start Sentinel failover watcher if enabled and Sentinel is configured.
-	// leaderElectedRunnable ensures only the active leader subscribes — prevents
-	// redundant TriggerResyncAll calls from non-leader replicas.
-	// Fail-safe: if subscription fails, operator continues with periodic resync.
-	if valkeyWatchFailover && valkeySentinelURLs != "" {
-		if err := mgr.Add(&leaderElectedRunnable{fn: func(ctx context.Context) error {
-			return valkeyClient.WatchFailover(ctx, func() {
-				controller.RecordSentinelFailover()
-				nsReconciler.TriggerResyncAll(ctx)
+	if enabled(controller.TenantControllerName) {
+		var valkeyClient valkey.Client
+		switch {
+		case valkeyURL != "":
+			valkeyClient = valkey.NewDirectClient(valkeyURL, valkeyAdminPassword)
+			defer func() { _ = valkeyClient.Close() }()
+			setupLog.Info("Valkey ACL provisioning enabled (direct)", "addr", valkeyURL)
+		case valkeySentinelURLs != "":
+			valkeyClient = valkey.NewSentinelClient(valkey.Config{
+				SentinelAddrs: strings.Split(valkeySentinelURLs, ","),
+				MasterName:    valkeySentinelMaster,
+				AdminPassword: valkeyAdminPassword,
 			})
-		}}); err != nil {
-			setupLog.Error(err, "unable to add Sentinel failover watcher (non-fatal)")
-		} else {
-			setupLog.Info("Sentinel failover watcher enabled")
+			defer func() { _ = valkeyClient.Close() }()
+			setupLog.Info("Valkey ACL provisioning enabled (sentinel)",
+				"sentinel", valkeySentinelURLs, "master", valkeySentinelMaster)
+		default:
+			valkeyClient = valkey.NoopClient{}
+			setupLog.Info("Valkey ACL provisioning disabled (set VALKEY_URL or VALKEY_SENTINEL_URLS)")
 		}
 
-		// Watch for replica restarts (+reboot/-sdown) to re-provision only the
-		// affected node immediately, without waiting for the periodic resync cycle.
-		if err := mgr.Add(&leaderElectedRunnable{fn: func(ctx context.Context) error {
-			return valkeyClient.WatchNodeRestart(ctx, func(addr string) {
-				nsReconciler.ProvisionSingleNode(ctx, addr)
-			})
-		}}); err != nil {
-			setupLog.Error(err, "unable to add node-restart watcher (non-fatal)")
-		} else {
-			setupLog.Info("Sentinel node-restart watcher enabled")
+		tenantReconciler := &controller.TenantReconciler{
+			Client:       mgr.GetClient(),
+			Scheme:       mgr.GetScheme(),
+			ValkeyClient: valkeyClient,
+			ResyncPeriod: valkeyResyncPeriod,
 		}
-	}
-
-	// Seed the tenants_provisioned gauge from current cluster state once the cache is warm.
-	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
-		if !mgr.GetCache().WaitForCacheSync(ctx) {
-			return fmt.Errorf("cache never synced")
-		}
-		return nsReconciler.InitMetrics(ctx)
-	})); err != nil {
-		setupLog.Error(err, "unable to add metrics init runnable")
-		os.Exit(1)
-	}
-
-	// Create shared HTTP client for pod notifications to prevent connection leaks
-	httpClient := controller.NewHTTPClient()
-
-	if err := (&controller.DecofileReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		HTTPClient: httpClient,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Decofile")
-		os.Exit(1)
-	}
-	// nolint:goconst
-	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
-		if err := webhookv1.SetupServiceWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create webhook", "webhook", "Service")
+		if err = tenantReconciler.SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "Namespace")
 			os.Exit(1)
 		}
-		if err := webhookv1.SetupDecofileWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create webhook", "webhook", "Decofile")
+		if valkeyWatchFailover && valkeySentinelURLs != "" {
+			if err = mgr.Add(&leaderElectedRunnable{fn: func(ctx context.Context) error {
+				return valkeyClient.WatchFailover(ctx, func() {
+					controller.RecordSentinelFailover()
+					tenantReconciler.TriggerResyncAll(ctx)
+				})
+			}}); err != nil {
+				setupLog.Error(err, "unable to add Sentinel failover watcher (non-fatal)")
+			} else {
+				setupLog.Info("Sentinel failover watcher enabled")
+			}
+			if err = mgr.Add(&leaderElectedRunnable{fn: func(ctx context.Context) error {
+				return valkeyClient.WatchNodeRestart(ctx, func(addr string) {
+					tenantReconciler.ProvisionSingleNode(ctx, addr)
+				})
+			}}); err != nil {
+				setupLog.Error(err, "unable to add node-restart watcher (non-fatal)")
+			} else {
+				setupLog.Info("Sentinel node-restart watcher enabled")
+			}
+		}
+		if err = mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+			if !mgr.GetCache().WaitForCacheSync(ctx) {
+				return fmt.Errorf("cache never synced")
+			}
+			return tenantReconciler.InitMetrics(ctx)
+		})); err != nil {
+			setupLog.Error(err, "unable to add metrics init runnable")
 			os.Exit(1)
 		}
 	}
-	registry := build.NewBuilderRegistry()
-	registry.Register("cloudflare-worker", build.NewCloudflareFactory(build.CfWorkersConfigFromEnv()))
 
-	builderSAAnnotations := map[string]string{}
-	if roleArn := os.Getenv("BUILD_ROLE_ARN"); roleArn != "" {
-		builderSAAnnotations["eks.amazonaws.com/role-arn"] = roleArn
-	}
-	if err := (&controller.DecoReconciler{
-		Client:               mgr.GetClient(),
-		Scheme:               mgr.GetScheme(),
-		Builder:              registry,
-		BuilderSAAnnotations: builderSAAnnotations,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Deco")
-		os.Exit(1)
-	}
-	if err := (&controller.DecoRedirectReconciler{
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		IngressClass:  redirectIngressClass,
-		ClusterIssuer: redirectClusterIssuer,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "DecoRedirect")
-		os.Exit(1)
-	}
-	apiUser := os.Getenv("OPERATOR_API_USER")
-	apiPass := os.Getenv("OPERATOR_API_PASSWORD")
-	if apiUser != "" && apiPass != "" {
-		h := api.NewHandlers(mgr.GetClient(), redirectNamespace)
-		if err := mgr.Add(api.NewServer(operatorAPIAddr, apiUser, apiPass, h)); err != nil {
-			setupLog.Error(err, "unable to add operator API server")
+	if enabled(controller.DecofileControllerName) {
+		httpClient := controller.NewHTTPClient()
+		if err = (&controller.DecofileReconciler{
+			Client:     mgr.GetClient(),
+			Scheme:     mgr.GetScheme(),
+			HTTPClient: httpClient,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "Decofile")
 			os.Exit(1)
 		}
-		setupLog.Info("Operator API enabled", "addr", operatorAPIAddr)
+		// nolint:goconst
+		if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+			if err = webhookv1.SetupServiceWebhookWithManager(mgr); err != nil {
+				setupLog.Error(err, "unable to create webhook", "webhook", "Service")
+				os.Exit(1)
+			}
+			if err = webhookv1.SetupDecofileWebhookWithManager(mgr); err != nil {
+				setupLog.Error(err, "unable to create webhook", "webhook", "Decofile")
+				os.Exit(1)
+			}
+		}
+	}
+
+	if enabled(controller.DecoControllerName) {
+		registry := build.NewBuilderRegistry()
+		registry.Register("cloudflare-worker", build.NewCloudflareFactory(build.CfWorkersConfigFromEnv()))
+		builderSAAnnotations := map[string]string{}
+		if roleArn := os.Getenv("BUILD_ROLE_ARN"); roleArn != "" {
+			builderSAAnnotations["eks.amazonaws.com/role-arn"] = roleArn
+		}
+		if err = (&controller.DecoReconciler{
+			Client:               mgr.GetClient(),
+			Scheme:               mgr.GetScheme(),
+			Builder:              registry,
+			BuilderSAAnnotations: builderSAAnnotations,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "Deco")
+			os.Exit(1)
+		}
+	}
+
+	if enabled(controller.DecoRedirectControllerName) {
+		if err = (&controller.DecoRedirectReconciler{
+			Client:        mgr.GetClient(),
+			Scheme:        mgr.GetScheme(),
+			IngressClass:  redirectIngressClass,
+			ClusterIssuer: redirectClusterIssuer,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "DecoRedirect")
+			os.Exit(1)
+		}
+	}
+
+	if enabled(api.ControllerName) {
+		apiUser := os.Getenv("OPERATOR_API_USER")
+		apiPass := os.Getenv("OPERATOR_API_PASSWORD")
+		if apiUser != "" && apiPass != "" {
+			h := api.NewHandlers(mgr.GetClient(), redirectNamespace)
+			if err = mgr.Add(api.NewServer(operatorAPIAddr, apiUser, apiPass, h)); err != nil {
+				setupLog.Error(err, "unable to add operator API server")
+				os.Exit(1)
+			}
+			setupLog.Info("Operator API enabled", "addr", operatorAPIAddr)
+		}
 	}
 
 	// +kubebuilder:scaffold:builder

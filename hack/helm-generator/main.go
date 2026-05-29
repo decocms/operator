@@ -117,6 +117,9 @@ func main() {
 	if err := addOperatorAPIIngress(templatesDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect API ingress: %v\n", err)
 	}
+	if err := addControllersArg(templatesDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not add controllers arg: %v\n", err)
+	}
 
 	fmt.Printf("✓ Generated %d Helm templates\n\n", fileCount)
 	fmt.Println("Test with:")
@@ -421,6 +424,27 @@ func addRedirectControllerArgs(templatesDir string) error {
 		return fmt.Errorf("anchor %q not found in %s", anchor, deploymentFile)
 	}
 	contentStr := strings.Replace(string(content), anchor, anchor+"\n"+args, 1)
+	return os.WriteFile(deploymentFile, []byte(contentStr), 0644)
+}
+
+func addControllersArg(templatesDir string) error {
+	files, err := filepath.Glob(filepath.Join(templatesDir, "deployment-*.yaml"))
+	if err != nil || len(files) == 0 {
+		return fmt.Errorf("no deployment file found")
+	}
+	deploymentFile := files[0]
+	content, err := os.ReadFile(deploymentFile)
+	if err != nil {
+		return err
+	}
+	arg := `        {{- if and .Values.controllers.enabled (not (has "*" .Values.controllers.enabled)) }}
+        - --controllers={{ join "," .Values.controllers.enabled }}
+        {{- end }}`
+	anchor := `        - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs`
+	if !strings.Contains(string(content), anchor) {
+		return fmt.Errorf("anchor %q not found in %s", anchor, deploymentFile)
+	}
+	contentStr := strings.Replace(string(content), anchor, anchor+"\n"+arg, 1)
 	return os.WriteFile(deploymentFile, []byte(contentStr), 0644)
 }
 

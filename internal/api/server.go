@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const ControllerName = "operator-api"
+
 // Server exposes a minimal HTTP API for managing operator resources.
 // It implements manager.Runnable so controller-runtime starts it alongside controllers.
 // TLS is terminated at the ingress/NLB layer; the server listens on plain HTTP.

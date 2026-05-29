@@ -46,6 +46,7 @@ const (
 	valkeySecretName      = "valkey-acl"
 	siteNamespacePrefix   = "sites-"
 	valkeyReservedDefault = "default"
+	TenantControllerName  = "tenant"
 )
 
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;update;patch
@@ -60,7 +61,7 @@ const DefaultResyncPeriod = 10 * time.Minute
 // valkeyACLAnnotationValue is the expected value of the opt-in annotation.
 const valkeyACLAnnotationValue = "true"
 
-// NamespaceReconciler provisions per-tenant Valkey ACL credentials for site namespaces.
+// TenantReconciler provisions per-tenant Valkey ACL credentials for site namespaces.
 // When a Namespace has the annotation "deco.sites/valkey-acl: true", the reconciler:
 //   - Creates a Valkey ACL user restricted to the site's key prefix.
 //   - Creates a K8s Secret "valkey-acl" in that namespace with the credentials.
@@ -94,7 +95,7 @@ const valkeyACLAnnotationValue = "true"
 //
 // TODO: when enabling auth, extend ValkeyClient to provision ACL SETUSER on
 // all nodes (master + every replica), not only the Sentinel master.
-type NamespaceReconciler struct {
+type TenantReconciler struct {
 	client.Client
 	Scheme       *runtime.Scheme
 	ValkeyClient valkey.Client
@@ -104,7 +105,7 @@ type NamespaceReconciler struct {
 // ProvisionSingleNode re-provisions all managed namespaces on one specific Valkey
 // node. Called when Sentinel detects a replica restart (+reboot/-sdown events) so
 // only the restarted node is updated — no unnecessary work on healthy nodes.
-func (r *NamespaceReconciler) ProvisionSingleNode(ctx context.Context, nodeAddr string) {
+func (r *TenantReconciler) ProvisionSingleNode(ctx context.Context, nodeAddr string) {
 	log := logf.FromContext(ctx).WithName("valkey-node-provision").WithValues("node", nodeAddr)
 	nsList := &corev1.NamespaceList{}
 	if err := r.List(ctx, nsList); err != nil {
@@ -141,7 +142,7 @@ func (r *NamespaceReconciler) ProvisionSingleNode(ctx context.Context, nodeAddr 
 // TriggerResyncAll immediately re-queues all managed namespaces by updating a
 // sync annotation. Called on Sentinel failover events to recover ACLs without
 // waiting for the next periodic resync cycle.
-func (r *NamespaceReconciler) TriggerResyncAll(ctx context.Context) {
+func (r *TenantReconciler) TriggerResyncAll(ctx context.Context) {
 	log := logf.FromContext(ctx).WithName("valkey-resync")
 	nsList := &corev1.NamespaceList{}
 	if err := r.List(ctx, nsList); err != nil {
@@ -171,7 +172,7 @@ func (r *NamespaceReconciler) TriggerResyncAll(ctx context.Context) {
 
 // InitMetrics seeds the tenants_provisioned gauge from current cluster state.
 // Must be called after the cache is synced (i.e. inside a Runnable or after mgr.Start).
-func (r *NamespaceReconciler) InitMetrics(ctx context.Context) error {
+func (r *TenantReconciler) InitMetrics(ctx context.Context) error {
 	nsList := &corev1.NamespaceList{}
 	if err := r.List(ctx, nsList); err != nil {
 		return err
@@ -196,7 +197,7 @@ func (r *NamespaceReconciler) InitMetrics(ctx context.Context) error {
 
 // SetupWithManager registers the Namespace controller with a resync period for
 // self-healing (recovers ACLs lost after a Valkey restart).
-func (r *NamespaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *TenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// Watch Secrets named "valkey-acl" and enqueue the parent Namespace.
 	// Namespace is cluster-scoped so Owns() (which relies on owner references) cannot
 	// be used across scopes. Instead we map Secret → Namespace by name.
@@ -221,7 +222,7 @@ func (r *NamespaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx).WithValues("namespace", req.Name)
 
 	ns := &corev1.Namespace{}
@@ -339,7 +340,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 // createSecret creates the "valkey-acl" Secret in the given namespace with
 // credentials ready to be consumed by deco via LOADER_CACHE_REDIS_USERNAME/PASSWORD.
-func (r *NamespaceReconciler) createSecret(ctx context.Context, namespace, username, password string) error {
+func (r *TenantReconciler) createSecret(ctx context.Context, namespace, username, password string) error {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      valkeySecretName,
