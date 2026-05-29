@@ -1,0 +1,11 @@
+{{- if and .Values.redirect.customHeaders.enabled .Values.redirect.customHeaders.headers }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redirect-response-headers
+  namespace: {{ .Values.redirect.namespace }}
+data:
+  {{- range $key, $val := .Values.redirect.customHeaders.headers }}
+  {{ $key }}: {{ $val | quote }}
+  {{- end }}
+{{- end }}

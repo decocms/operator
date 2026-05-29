@@ -1,0 +1,9 @@
+{{- if .Values.redirect.customHeaders.enabled }}
+Custom response headers are enabled for apex redirects:
+{{- range $key, $val := .Values.redirect.customHeaders.headers }}
+  {{ $key }}: {{ $val }}
+{{- end }}
+
+To activate them, make sure the nginx controller is configured to read the header ConfigMap:
+  ingress-nginx.controller.config.add-headers: "{{ .Values.redirect.namespace }}/redirect-custom-headers"
+{{- end }}

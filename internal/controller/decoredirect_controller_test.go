@@ -117,6 +117,20 @@ var _ = Describe("DecoRedirect Controller", func() {
 			Expect(err.Error()).To(ContainSubstring("redirect target must be within the same domain"))
 		})
 
+		It("should reject a DecoRedirect with an invalid redirectCode", func() {
+			invalidCode := 302
+			err := k8sClient.Create(ctx, &decositesv1alpha1.DecoRedirect{
+				ObjectMeta: metav1.ObjectMeta{Name: "invalid-code", Namespace: rdNS},
+				Spec: decositesv1alpha1.DecoRedirectSpec{
+					From:         "invalid-code.com",
+					To:           "https://www.invalid-code.com",
+					RedirectCode: &invalidCode,
+				},
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("redirectCode"))
+		})
+
 		It("should not create duplicate Certificate on repeated reconcile", func() {
 			_, err := newReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
@@ -133,6 +147,41 @@ var _ = Describe("DecoRedirect Controller", func() {
 				}
 			}
 			Expect(count).To(Equal(1))
+		})
+
+		It("should set permanent-redirect-code to 307 by default", func() {
+			_, err := newReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			ing := &networkingv1.Ingress{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name: "redirect-client-com", Namespace: rdNS,
+			}, ing)).To(Succeed())
+			Expect(ing.Annotations["nginx.ingress.kubernetes.io/permanent-redirect-code"]).To(Equal("307"))
+		})
+
+		It("should use redirectCode 301 in the Ingress annotation when specified", func() {
+			code := 301
+			rd301 := &decositesv1alpha1.DecoRedirect{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-redirect-301", Namespace: rdNS},
+				Spec: decositesv1alpha1.DecoRedirectSpec{
+					From:         "redirect301.com",
+					To:           "https://www.redirect301.com",
+					RedirectCode: &code,
+				},
+			}
+			Expect(k8sClient.Create(ctx, rd301)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, rd301) })
+
+			nn301 := types.NamespacedName{Name: "test-redirect-301", Namespace: rdNS}
+			_, err := newReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: nn301})
+			Expect(err).NotTo(HaveOccurred())
+
+			ing := &networkingv1.Ingress{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name: "redirect-redirect301-com", Namespace: rdNS,
+			}, ing)).To(Succeed())
+			Expect(ing.Annotations["nginx.ingress.kubernetes.io/permanent-redirect-code"]).To(Equal("301"))
 		})
 	})
 })

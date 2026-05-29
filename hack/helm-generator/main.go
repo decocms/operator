@@ -105,6 +105,9 @@ func main() {
 	if err := addClusterIssuer(templatesDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Could not add ClusterIssuer: %v\n", err)
 	}
+	if err := addRedirectCustomHeaders(templatesDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect custom headers ConfigMap: %v\n", err)
+	}
 	if err := addRedirectControllerArgs(templatesDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Could not add redirect controller args: %v\n", err)
 	}
@@ -397,6 +400,22 @@ spec:
 {{- end }}
 `
 	return os.WriteFile(filepath.Join(templatesDir, "clusterissuer-letsencrypt.yaml"), []byte(content), 0644)
+}
+
+func addRedirectCustomHeaders(templatesDir string) error {
+	content := `{{- if and .Values.redirect.customHeaders.enabled .Values.redirect.customHeaders.headers }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redirect-response-headers
+  namespace: {{ .Values.redirect.namespace }}
+data:
+  {{- range $key, $val := .Values.redirect.customHeaders.headers }}
+  {{ $key }}: {{ $val | quote }}
+  {{- end }}
+{{- end }}
+`
+	return os.WriteFile(filepath.Join(templatesDir, "configmap-redirect-custom-headers.yaml"), []byte(content), 0644)
 }
 
 func addRedirectControllerArgs(templatesDir string) error {

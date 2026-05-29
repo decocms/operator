@@ -27,14 +27,16 @@ func NewHandlers(c client.Client, defaultNamespace string) *Handlers {
 }
 
 type redirectRequest struct {
-	From      string `json:"from"`
-	To        string `json:"to"`
-	Namespace string `json:"namespace,omitempty"`
+	From         string `json:"from"`
+	To           string `json:"to"`
+	Namespace    string `json:"namespace,omitempty"`
+	RedirectCode *int   `json:"redirectCode,omitempty"`
 }
 
 type redirectResponse struct {
 	From             string `json:"from"`
 	To               string `json:"to"`
+	RedirectCode     *int   `json:"redirectCode,omitempty"`
 	CertificateReady bool   `json:"certificateReady"`
 	Message          string `json:"message,omitempty"`
 	CreatedAt        string `json:"createdAt"`
@@ -42,9 +44,10 @@ type redirectResponse struct {
 
 func toResponse(rd *decositesv1alpha1.DecoRedirect) redirectResponse {
 	resp := redirectResponse{
-		From:      rd.Spec.From,
-		To:        rd.Spec.To,
-		CreatedAt: rd.CreationTimestamp.UTC().Format("2006-01-02T15:04:05Z"),
+		From:         rd.Spec.From,
+		To:           rd.Spec.To,
+		RedirectCode: rd.Spec.RedirectCode,
+		CreatedAt:    rd.CreationTimestamp.UTC().Format("2006-01-02T15:04:05Z"),
 	}
 	for _, c := range rd.Status.Conditions {
 		if c.Type == "CertificateReady" {
@@ -85,10 +88,12 @@ func (h *Handlers) create(w http.ResponseWriter, r *http.Request) {
 			Namespace: ns,
 		},
 		Spec: decositesv1alpha1.DecoRedirectSpec{
-			From: from, // original domain preserved for CEL validation
-			To:   to,
+			From:         from, // original domain preserved for CEL validation
+			To:           to,
+			RedirectCode: req.RedirectCode,
 		},
 	}
+	// redirectCode enum validation (301|307) is enforced by the CRD schema; invalid values return 422.
 	if err := h.client.Create(r.Context(), rd); err != nil {
 		status := http.StatusInternalServerError
 		if apierrors.IsInvalid(err) {
