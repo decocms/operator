@@ -10,7 +10,7 @@ import (
 )
 
 var knownControllers = []string{
-	controller.NamespaceControllerName,
+	controller.TenantControllerName,
 	controller.DecofileControllerName,
 	controller.DecoControllerName,
 	controller.DecoRedirectControllerName,

@@ -266,7 +266,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if enabled(controller.NamespaceControllerName) {
+	if enabled(controller.TenantControllerName) {
 		var valkeyClient valkey.Client
 		switch {
 		case valkeyURL != "":
@@ -287,13 +287,13 @@ func main() {
 			setupLog.Info("Valkey ACL provisioning disabled (set VALKEY_URL or VALKEY_SENTINEL_URLS)")
 		}
 
-		nsReconciler := &controller.NamespaceReconciler{
+		tenantReconciler := &controller.TenantReconciler{
 			Client:       mgr.GetClient(),
 			Scheme:       mgr.GetScheme(),
 			ValkeyClient: valkeyClient,
 			ResyncPeriod: valkeyResyncPeriod,
 		}
-		if err = nsReconciler.SetupWithManager(mgr); err != nil {
+		if err = tenantReconciler.SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Namespace")
 			os.Exit(1)
 		}
@@ -301,7 +301,7 @@ func main() {
 			if err = mgr.Add(&leaderElectedRunnable{fn: func(ctx context.Context) error {
 				return valkeyClient.WatchFailover(ctx, func() {
 					controller.RecordSentinelFailover()
-					nsReconciler.TriggerResyncAll(ctx)
+					tenantReconciler.TriggerResyncAll(ctx)
 				})
 			}}); err != nil {
 				setupLog.Error(err, "unable to add Sentinel failover watcher (non-fatal)")
@@ -310,7 +310,7 @@ func main() {
 			}
 			if err = mgr.Add(&leaderElectedRunnable{fn: func(ctx context.Context) error {
 				return valkeyClient.WatchNodeRestart(ctx, func(addr string) {
-					nsReconciler.ProvisionSingleNode(ctx, addr)
+					tenantReconciler.ProvisionSingleNode(ctx, addr)
 				})
 			}}); err != nil {
 				setupLog.Error(err, "unable to add node-restart watcher (non-fatal)")
@@ -322,7 +322,7 @@ func main() {
 			if !mgr.GetCache().WaitForCacheSync(ctx) {
 				return fmt.Errorf("cache never synced")
 			}
-			return nsReconciler.InitMetrics(ctx)
+			return tenantReconciler.InitMetrics(ctx)
 		})); err != nil {
 			setupLog.Error(err, "unable to add metrics init runnable")
 			os.Exit(1)

@@ -34,7 +34,7 @@ func TestParseControllers_Subset(t *testing.T) {
 	if enabled(controller.DecofileControllerName) {
 		t.Error("expected decofile to be disabled")
 	}
-	if enabled(controller.NamespaceControllerName) {
+	if enabled(controller.TenantControllerName) {
 		t.Error("expected namespace to be disabled")
 	}
 	if enabled(controller.DecoControllerName) {
