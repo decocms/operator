@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"net"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +25,14 @@ import (
 
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
 )
+
+// gcpIPv6Range is Google Cloud's IPv6 range used by Deno Deploy.
+// Presence of a AAAA record in this range means Let's Encrypt will validate via
+// Deno Deploy's IPv6 address and fail the HTTP-01 challenge.
+var gcpIPv6Range = func() *net.IPNet {
+	_, n, _ := net.ParseCIDR("2600:1901::/32")
+	return n
+}()
 
 // DecoRedirectReconciler reconciles a DecoRedirect object.
 type DecoRedirectReconciler struct {
@@ -49,6 +59,15 @@ func (r *DecoRedirectReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	rd := &decositesv1alpha1.DecoRedirect{}
 	if err := r.Get(ctx, req.NamespacedName, rd); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// Auto-heal: if Certificate is stuck in Failed backoff and DNS is now correct, delete it
+	// so reconcileCertificate recreates it fresh and cert-manager retries without backoff.
+	if healed, err := r.maybeHealCertificate(ctx, rd); err != nil {
+		log.Error(err, "failed to heal Certificate")
+		return ctrl.Result{}, err
+	} else if healed {
+		return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 	}
 
 	if err := r.reconcileCertificate(ctx, rd); err != nil {
@@ -189,6 +208,84 @@ func (r *DecoRedirectReconciler) updateStatus(ctx context.Context, rd *decosites
 	})
 
 	return certReady, r.Status().Patch(ctx, patch, client.MergeFrom(rd))
+}
+
+// maybeHealCertificate deletes a Certificate that is stuck in Failed backoff when DNS
+// is already pointing correctly to the Deco redirect infrastructure. Returning true
+// means the Certificate was deleted and the caller should requeue before recreating it.
+func (r *DecoRedirectReconciler) maybeHealCertificate(ctx context.Context, rd *decositesv1alpha1.DecoRedirect) (bool, error) {
+	log := logf.FromContext(ctx)
+
+	cert := &cmv1.Certificate{}
+	if err := r.Get(ctx, types.NamespacedName{Name: resourceName(rd.Spec.From), Namespace: rd.Namespace}, cert); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+
+	// Only act when cert-manager has given up and entered backoff (Issuing=False, Reason=Failed).
+	if !isCertFailed(cert) {
+		return false, nil
+	}
+
+	if !isDNSReady(ctx, rd.Spec.From) {
+		log.Info("certificate in Failed backoff but DNS not ready yet", "domain", rd.Spec.From)
+		return false, nil
+	}
+
+	log.Info("certificate in Failed backoff and DNS is ready — deleting to trigger retry", "domain", rd.Spec.From)
+	if err := r.Delete(ctx, cert); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	return true, nil
+}
+
+// isCertFailed reports whether the Certificate is stuck in cert-manager's exponential
+// backoff after a failed issuance attempt (Issuing=False, Reason=Failed).
+func isCertFailed(cert *cmv1.Certificate) bool {
+	for _, c := range cert.Status.Conditions {
+		if c.Type == cmv1.CertificateConditionIssuing {
+			return c.Status == cmmeta.ConditionFalse && c.Reason == "Failed"
+		}
+	}
+	return false
+}
+
+// isDNSReady checks that the domain is correctly pointing to Deco's redirect
+// infrastructure by verifying two conditions:
+//  1. An HTTP request returns a redirect served by the deco nginx (X-Redirect-By: deco).
+//  2. No AAAA record in the GCP range (2600:1901::/32) exists, which would cause
+//     Let's Encrypt's IPv6 validation to hit Deno Deploy instead of nginx.
+func isDNSReady(ctx context.Context, domain string) bool {
+	httpClient := &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		Timeout:       5 * time.Second,
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+domain+"/", nil)
+	if err != nil {
+		return false
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	if resp.Header.Get("X-Redirect-By") != "deco" {
+		return false
+	}
+
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, domain)
+	if err != nil {
+		return false
+	}
+	for _, a := range addrs {
+		ip := a.IP
+		if ip.To4() != nil {
+			continue // IPv4 — skip
+		}
+		if gcpIPv6Range.Contains(ip) {
+			return false // Deno Deploy IPv6 still present
+		}
+	}
+	return true
 }
 
 // resourceName returns a deterministic k8s-safe name for a domain, capped at 253 chars.
