@@ -105,6 +105,10 @@ func (r *DecoRedirectReconciler) reconcileCertificate(ctx context.Context, rd *d
 	}
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, cert, func() error {
+		// Skip mutation while the object is being deleted — the Watch will re-trigger once gone.
+		if cert.DeletionTimestamp != nil {
+			return nil
+		}
 		cert.Spec.SecretName = tlsSecretName(rd.Spec.From)
 		cert.Spec.DNSNames = []string{rd.Spec.From}
 		cert.Spec.IssuerRef = cmmeta.ObjectReference{
