@@ -249,7 +249,7 @@ func checkDNSReady(ctx context.Context, domain string) error {
 	if err != nil {
 		return fmt.Errorf("domain not reachable: %w", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.Header.Get("X-Redirect-By") != "deco" {
 		return fmt.Errorf("domain is not pointing to Deco redirect IPs yet")
 	}

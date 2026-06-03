@@ -271,7 +271,7 @@ func isDNSReady(ctx context.Context, domain string) bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.Header.Get("X-Redirect-By") != "deco" {
 		return false
 	}
