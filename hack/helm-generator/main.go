@@ -434,6 +434,9 @@ func addRedirectControllerArgs(templatesDir string) error {
         - --redirect-ingress-class={{ .Values.redirect.ingressClass }}
         - --redirect-cluster-issuer={{ .Values.redirect.clusterIssuer.name }}
         {{- end }}
+        {{- if .Values.redirect.blockedIPv6CIDRs }}
+        - --redirect-blocked-ipv6={{ join "," .Values.redirect.blockedIPv6CIDRs }}
+        {{- end }}
         {{- if .Values.redirect.namespace }}
         - --redirect-namespace={{ .Values.redirect.namespace }}
         {{- end }}`
