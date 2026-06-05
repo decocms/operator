@@ -21,7 +21,6 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,10 +135,6 @@ func main() {
 	flag.StringVar(&redirectClusterIssuer, "redirect-cluster-issuer",
 		getEnvOrDefault("REDIRECT_CLUSTER_ISSUER", "letsencrypt"),
 		"cert-manager ClusterIssuer name (matches redirect.clusterIssuer.name in values).")
-	var redirectBlockedIPv6 string
-	flag.StringVar(&redirectBlockedIPv6, "redirect-blocked-ipv6",
-		getEnvOrDefault("REDIRECT_BLOCKED_IPV6", ""),
-		"Comma-separated list of IPv6 CIDR ranges that block cert issuance when present in a domain's AAAA records (e.g. 2600:1901::/32).")
 	var controllersFlag string
 	flag.StringVar(&controllersFlag, "controllers", "*",
 		"Comma-separated list of controllers to enable. Use \"*\" to enable all. Valid values: "+
@@ -376,25 +371,11 @@ func main() {
 	}
 
 	if enabled(controller.DecoRedirectControllerName) {
-		var blockedIPv6CIDRs []*net.IPNet
-		for _, cidr := range strings.Split(redirectBlockedIPv6, ",") {
-			cidr = strings.TrimSpace(cidr)
-			if cidr == "" {
-				continue
-			}
-			_, ipNet, err := net.ParseCIDR(cidr)
-			if err != nil {
-				setupLog.Error(err, "invalid CIDR in --redirect-blocked-ipv6", "cidr", cidr)
-				os.Exit(1)
-			}
-			blockedIPv6CIDRs = append(blockedIPv6CIDRs, ipNet)
-		}
 		if err = (&controller.DecoRedirectReconciler{
-			Client:           mgr.GetClient(),
-			Scheme:           mgr.GetScheme(),
-			IngressClass:     redirectIngressClass,
-			ClusterIssuer:    redirectClusterIssuer,
-			BlockedIPv6CIDRs: blockedIPv6CIDRs,
+			Client:        mgr.GetClient(),
+			Scheme:        mgr.GetScheme(),
+			IngressClass:  redirectIngressClass,
+			ClusterIssuer: redirectClusterIssuer,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "DecoRedirect")
 			os.Exit(1)
