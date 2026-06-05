@@ -6,9 +6,12 @@ import (
 	"regexp"
 	"strings"
 
+	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -166,6 +169,61 @@ func (h *Handlers) list(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(items)
+}
+
+type checkStatus string
+
+const (
+	checkStatusReady    checkStatus = "ready"
+	checkStatusIssuing  checkStatus = "issuing"
+	checkStatusDNSIssue checkStatus = "dns_issue"
+)
+
+type checkResponse struct {
+	Status  checkStatus `json:"status"`
+	Message string      `json:"message,omitempty"`
+}
+
+func (h *Handlers) check(w http.ResponseWriter, r *http.Request) {
+	rawDomain := strings.ToLower(strings.TrimSpace(r.PathValue("domain")))
+	if !domainRe.MatchString(rawDomain) {
+		http.Error(w, "invalid domain", http.StatusBadRequest)
+		return
+	}
+	domain := domainToName(rawDomain)
+	ns := h.nsOrDefault(r.URL.Query().Get("namespace"))
+
+	if err := h.client.Get(r.Context(), client.ObjectKey{Name: domain, Namespace: ns}, &decositesv1alpha1.DecoRedirect{}); err != nil {
+		status := http.StatusInternalServerError
+		if apierrors.IsNotFound(err) {
+			status = http.StatusNotFound
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+
+	resp := checkResponse{Status: checkStatusIssuing, Message: "Certificate is being generated, please wait a few minutes."}
+
+	cert := &cmv1.Certificate{}
+	certName := "redirect-" + domain
+	if err := h.client.Get(r.Context(), types.NamespacedName{Name: certName, Namespace: ns}, cert); err == nil {
+		for _, c := range cert.Status.Conditions {
+			if c.Type == cmv1.CertificateConditionReady && c.Status == cmmeta.ConditionTrue {
+				resp = checkResponse{Status: checkStatusReady}
+				break
+			}
+			if c.Type == cmv1.CertificateConditionIssuing && c.Status == cmmeta.ConditionFalse && c.Reason == "Failed" {
+				resp = checkResponse{
+					Status:  checkStatusDNSIssue,
+					Message: "Certificate issuance failed. Please check your DNS records and ensure only the Deco redirect IPs are configured.",
+				}
+				break
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // domainToName converts a domain to a valid k8s resource name (dots → dashes).
