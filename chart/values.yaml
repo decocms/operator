@@ -140,6 +140,7 @@ operatorApi:
 redirect:
   namespace: "deco-redirect-system"
   ingressClass: ""          # set to enable DecoRedirect controller (e.g. "redirect-nginx")
+  blockedIPv6CIDRs: []      # IPv6 CIDRs that block cert issuance when present in AAAA records (e.g. ["2600:1901::/32"])
   clusterIssuer:
     enabled: false          # set true to create the Let's Encrypt ClusterIssuer
     name: ""                # ClusterIssuer name (e.g. "letsencrypt")
