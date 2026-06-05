@@ -26,13 +26,6 @@ import (
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
 )
 
-// gcpIPv6Range is Google Cloud's IPv6 range used by Deno Deploy.
-// Presence of a AAAA record in this range means Let's Encrypt will validate via
-// Deno Deploy's IPv6 address and fail the HTTP-01 challenge.
-var gcpIPv6Range = func() *net.IPNet {
-	_, n, _ := net.ParseCIDR("2600:1901::/32")
-	return n
-}()
 
 // DecoRedirectReconciler reconciles a DecoRedirect object.
 type DecoRedirectReconciler struct {
@@ -40,7 +33,12 @@ type DecoRedirectReconciler struct {
 	Scheme        *runtime.Scheme
 	IngressClass  string // nginx ingress class name, e.g. "nginx"
 	ClusterIssuer string // cert-manager ClusterIssuer name, e.g. "letsencrypt"
-	// DNSReadyFunc checks if the domain DNS is correctly pointing to Deco infrastructure.
+	// BlockedIPv6CIDRs is a list of IPv6 CIDR ranges that, if present in a domain's
+	// AAAA records, indicate DNS is not ready for cert issuance. Typically these are
+	// legacy infrastructure addresses that intercept Let's Encrypt validation and return
+	// incorrect responses. When empty, no AAAA check is performed.
+	BlockedIPv6CIDRs []*net.IPNet
+	// DNSReadyFunc checks if the domain DNS is correctly pointing to the redirect infrastructure.
 	// Defaults to isDNSReady. Injectable for testing.
 	DNSReadyFunc func(ctx context.Context, domain string) bool
 }
@@ -235,7 +233,7 @@ func (r *DecoRedirectReconciler) maybeHealCertificate(ctx context.Context, rd *d
 
 	dnsReady := r.DNSReadyFunc
 	if dnsReady == nil {
-		dnsReady = isDNSReady
+		dnsReady = r.isDNSReady
 	}
 	if !dnsReady(ctx, rd.Spec.From) {
 		log.Info("certificate in Failed backoff but DNS not ready yet", "domain", rd.Spec.From)
@@ -260,12 +258,12 @@ func isCertFailed(cert *cmv1.Certificate) bool {
 	return false
 }
 
-// isDNSReady checks that the domain is correctly pointing to Deco's redirect
+// isDNSReady checks that the domain DNS is correctly pointing to the redirect
 // infrastructure by verifying two conditions:
-//  1. An HTTP request returns a redirect served by the deco nginx (X-Redirect-By: deco).
-//  2. No AAAA record in the GCP range (2600:1901::/32) exists, which would cause
-//     Let's Encrypt's IPv6 validation to hit Deno Deploy instead of nginx.
-func isDNSReady(ctx context.Context, domain string) bool {
+//  1. An HTTP request returns a redirect served by the nginx (X-Redirect-By: deco header).
+//  2. No AAAA record falls within any of the BlockedIPv6CIDRs ranges, which would cause
+//     Let's Encrypt's IPv6 validation to reach the wrong server and fail the HTTP-01 challenge.
+func (r *DecoRedirectReconciler) isDNSReady(ctx context.Context, domain string) bool {
 	httpClient := &http.Client{
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		Timeout:       5 * time.Second,
@@ -283,6 +281,10 @@ func isDNSReady(ctx context.Context, domain string) bool {
 		return false
 	}
 
+	if len(r.BlockedIPv6CIDRs) == 0 {
+		return true
+	}
+
 	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, domain)
 	if err != nil {
 		return false
@@ -292,8 +294,10 @@ func isDNSReady(ctx context.Context, domain string) bool {
 		if ip.To4() != nil {
 			continue // IPv4 — skip
 		}
-		if gcpIPv6Range.Contains(ip) {
-			return false // Deno Deploy IPv6 still present
+		for _, blocked := range r.BlockedIPv6CIDRs {
+			if blocked.Contains(ip) {
+				return false
+			}
 		}
 	}
 	return true
