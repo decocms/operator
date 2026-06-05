@@ -23,7 +23,6 @@ func NewServer(addr, user, pass string, h *Handlers) *Server {
 	mux.HandleFunc("POST /redirects", h.create)
 	mux.HandleFunc("GET /redirects/{domain}", h.get)
 	mux.HandleFunc("DELETE /redirects/{domain}", h.delete)
-	mux.HandleFunc("POST /redirects/{domain}/retry-cert", h.retryCert)
 	return &Server{
 		addr:    addr,
 		handler: basicAuth(user, pass, mux),
