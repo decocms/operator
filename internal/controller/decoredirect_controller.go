@@ -40,6 +40,9 @@ type DecoRedirectReconciler struct {
 	Scheme        *runtime.Scheme
 	IngressClass  string // nginx ingress class name, e.g. "nginx"
 	ClusterIssuer string // cert-manager ClusterIssuer name, e.g. "letsencrypt"
+	// DNSReadyFunc checks if the domain DNS is correctly pointing to Deco infrastructure.
+	// Defaults to isDNSReady. Injectable for testing.
+	DNSReadyFunc func(ctx context.Context, domain string) bool
 }
 
 // dummyBackendName satisfies the k8s Ingress API requirement for a backend on every path.
@@ -225,12 +228,16 @@ func (r *DecoRedirectReconciler) maybeHealCertificate(ctx context.Context, rd *d
 		return false, client.IgnoreNotFound(err)
 	}
 
-	// Only act when cert-manager has given up and entered backoff (Issuing=False, Reason=Failed).
-	if !isCertFailed(cert) {
+	// Skip if already being deleted or not in the Failed backoff state.
+	if cert.DeletionTimestamp != nil || !isCertFailed(cert) {
 		return false, nil
 	}
 
-	if !isDNSReady(ctx, rd.Spec.From) {
+	dnsReady := r.DNSReadyFunc
+	if dnsReady == nil {
+		dnsReady = isDNSReady
+	}
+	if !dnsReady(ctx, rd.Spec.From) {
 		log.Info("certificate in Failed backoff but DNS not ready yet", "domain", rd.Spec.From)
 		return false, nil
 	}
