@@ -184,4 +184,161 @@ var _ = Describe("DecoRedirect Controller", func() {
 			Expect(ing.Annotations["nginx.ingress.kubernetes.io/permanent-redirect-code"]).To(Equal("301"))
 		})
 	})
+
+	Context("Auto-healing: maybeHealCertificate", func() {
+		const healNS = "default"
+		ctx := context.Background()
+
+		newReconciler := func(dnsReady bool) *DecoRedirectReconciler {
+			return &DecoRedirectReconciler{
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				IngressClass:  "nginx",
+				ClusterIssuer: "letsencrypt",
+				DNSReadyFunc:  func(_ context.Context, _ string) bool { return dnsReady },
+			}
+		}
+
+		// Each test uses a unique name to avoid state sharing between tests.
+		setup := func(suffix string) (nn, certNN types.NamespacedName, cleanup func()) {
+			name := "heal-" + suffix
+			domain := name + ".com"
+			nn = types.NamespacedName{Name: name + "-com", Namespace: healNS}
+			certNN = types.NamespacedName{Name: "redirect-" + name + "-com", Namespace: healNS}
+
+			rd := &decositesv1alpha1.DecoRedirect{
+				ObjectMeta: metav1.ObjectMeta{Name: name + "-com", Namespace: healNS},
+				Spec: decositesv1alpha1.DecoRedirectSpec{
+					From: domain,
+					To:   "https://www." + domain,
+				},
+			}
+			Expect(k8sClient.Create(ctx, rd)).To(Succeed())
+
+			cleanup = func() {
+				r := &decositesv1alpha1.DecoRedirect{}
+				if err := k8sClient.Get(ctx, nn, r); err == nil {
+					_ = k8sClient.Delete(ctx, r)
+				}
+				c := &cmv1.Certificate{}
+				if err := k8sClient.Get(ctx, certNN, c); err == nil {
+					_ = k8sClient.Delete(ctx, c)
+				}
+			}
+			return nn, certNN, cleanup
+		}
+
+		patchCertFailed := func(certNN types.NamespacedName) {
+			cert := &cmv1.Certificate{}
+			Expect(k8sClient.Get(ctx, certNN, cert)).To(Succeed())
+			patch := cert.DeepCopy()
+			patch.Status.Conditions = []cmv1.CertificateCondition{
+				{Type: cmv1.CertificateConditionReady, Status: "False", Reason: "DoesNotExist", Message: "secret not found", LastTransitionTime: &[]metav1.Time{metav1.Now()}[0]},
+				{Type: cmv1.CertificateConditionIssuing, Status: "False", Reason: "Failed", Message: "cert request failed", LastTransitionTime: &[]metav1.Time{metav1.Now()}[0]},
+			}
+			Expect(k8sClient.Status().Patch(ctx, patch, client.MergeFrom(cert))).To(Succeed())
+		}
+
+		It("should delete the Certificate when it is in Failed backoff and DNS is ready", func() {
+			nn, certNN, cleanup := setup("delete")
+			DeferCleanup(cleanup)
+
+			_, err := newReconciler(true).Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			patchCertFailed(certNN)
+
+			rd := &decositesv1alpha1.DecoRedirect{}
+			Expect(k8sClient.Get(ctx, nn, rd)).To(Succeed())
+
+			healed, err := newReconciler(true).maybeHealCertificate(ctx, rd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(healed).To(BeTrue())
+
+			cert := &cmv1.Certificate{}
+			Expect(k8sClient.Get(ctx, certNN, cert)).To(MatchError(ContainSubstring("not found")))
+		})
+
+		It("should NOT delete the Certificate when DNS is not ready", func() {
+			nn, certNN, cleanup := setup("dns-wrong")
+			DeferCleanup(cleanup)
+
+			_, err := newReconciler(false).Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			patchCertFailed(certNN)
+
+			rd := &decositesv1alpha1.DecoRedirect{}
+			Expect(k8sClient.Get(ctx, nn, rd)).To(Succeed())
+
+			healed, err := newReconciler(false).maybeHealCertificate(ctx, rd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(healed).To(BeFalse())
+
+			cert := &cmv1.Certificate{}
+			Expect(k8sClient.Get(ctx, certNN, cert)).To(Succeed())
+		})
+
+		It("should NOT delete the Certificate when it is Issuing (actively trying)", func() {
+			nn, certNN, cleanup := setup("issuing")
+			DeferCleanup(cleanup)
+
+			_, err := newReconciler(true).Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			cert := &cmv1.Certificate{}
+			Expect(k8sClient.Get(ctx, certNN, cert)).To(Succeed())
+			patch := cert.DeepCopy()
+			patch.Status.Conditions = []cmv1.CertificateCondition{
+				{Type: cmv1.CertificateConditionIssuing, Status: "True", Reason: "Issuing", LastTransitionTime: &[]metav1.Time{metav1.Now()}[0]},
+			}
+			Expect(k8sClient.Status().Patch(ctx, patch, client.MergeFrom(cert))).To(Succeed())
+
+			rd := &decositesv1alpha1.DecoRedirect{}
+			Expect(k8sClient.Get(ctx, nn, rd)).To(Succeed())
+
+			healed, err := newReconciler(true).maybeHealCertificate(ctx, rd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(healed).To(BeFalse())
+
+			Expect(k8sClient.Get(ctx, certNN, cert)).To(Succeed())
+		})
+
+		It("should NOT delete the Certificate when it is Ready", func() {
+			nn, certNN, cleanup := setup("ready")
+			DeferCleanup(cleanup)
+
+			_, err := newReconciler(true).Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			cert := &cmv1.Certificate{}
+			Expect(k8sClient.Get(ctx, certNN, cert)).To(Succeed())
+			patch := cert.DeepCopy()
+			patch.Status.Conditions = []cmv1.CertificateCondition{
+				{Type: cmv1.CertificateConditionReady, Status: "True", Reason: "Ready", LastTransitionTime: &[]metav1.Time{metav1.Now()}[0]},
+			}
+			Expect(k8sClient.Status().Patch(ctx, patch, client.MergeFrom(cert))).To(Succeed())
+
+			rd := &decositesv1alpha1.DecoRedirect{}
+			Expect(k8sClient.Get(ctx, nn, rd)).To(Succeed())
+
+			healed, err := newReconciler(true).maybeHealCertificate(ctx, rd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(healed).To(BeFalse())
+
+			Expect(k8sClient.Get(ctx, certNN, cert)).To(Succeed())
+		})
+
+		It("should do nothing when the Certificate does not exist yet", func() {
+			nn, _, cleanup := setup("no-cert")
+			DeferCleanup(cleanup)
+
+			rd := &decositesv1alpha1.DecoRedirect{}
+			Expect(k8sClient.Get(ctx, nn, rd)).To(Succeed())
+
+			healed, err := newReconciler(true).maybeHealCertificate(ctx, rd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(healed).To(BeFalse())
+		})
+	})
 })

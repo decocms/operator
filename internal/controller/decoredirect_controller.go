@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"net"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +32,14 @@ type DecoRedirectReconciler struct {
 	Scheme        *runtime.Scheme
 	IngressClass  string // nginx ingress class name, e.g. "nginx"
 	ClusterIssuer string // cert-manager ClusterIssuer name, e.g. "letsencrypt"
+	// BlockedIPv6CIDRs is a list of IPv6 CIDR ranges that, if present in a domain's
+	// AAAA records, indicate DNS is not ready for cert issuance. Typically legacy
+	// infrastructure addresses that intercept Let's Encrypt validation incorrectly.
+	// When empty, no AAAA check is performed.
+	BlockedIPv6CIDRs []*net.IPNet
+	// DNSReadyFunc checks if the domain DNS is correctly pointing to the redirect infrastructure.
+	// Defaults to isDNSReady. Injectable for testing.
+	DNSReadyFunc func(ctx context.Context, domain string) bool
 }
 
 // dummyBackendName satisfies the k8s Ingress API requirement for a backend on every path.
@@ -49,6 +59,15 @@ func (r *DecoRedirectReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	rd := &decositesv1alpha1.DecoRedirect{}
 	if err := r.Get(ctx, req.NamespacedName, rd); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// Auto-heal: if Certificate is stuck in Failed backoff and DNS is now correct, delete it
+	// so reconcileCertificate recreates it fresh and cert-manager retries without backoff.
+	if healed, err := r.maybeHealCertificate(ctx, rd); err != nil {
+		log.Error(err, "failed to heal Certificate")
+		return ctrl.Result{}, err
+	} else if healed {
+		return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 	}
 
 	if err := r.reconcileCertificate(ctx, rd); err != nil {
@@ -86,6 +105,10 @@ func (r *DecoRedirectReconciler) reconcileCertificate(ctx context.Context, rd *d
 	}
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, cert, func() error {
+		// Skip mutation while the object is being deleted — the Watch will re-trigger once gone.
+		if cert.DeletionTimestamp != nil {
+			return nil
+		}
 		cert.Spec.SecretName = tlsSecretName(rd.Spec.From)
 		cert.Spec.DNSNames = []string{rd.Spec.From}
 		cert.Spec.IssuerRef = cmmeta.ObjectReference{
@@ -189,6 +212,93 @@ func (r *DecoRedirectReconciler) updateStatus(ctx context.Context, rd *decosites
 	})
 
 	return certReady, r.Status().Patch(ctx, patch, client.MergeFrom(rd))
+}
+
+// maybeHealCertificate deletes a Certificate that is stuck in Failed backoff when DNS
+// is already pointing correctly to the Deco redirect infrastructure. Returning true
+// means the Certificate was deleted and the caller should requeue before recreating it.
+func (r *DecoRedirectReconciler) maybeHealCertificate(ctx context.Context, rd *decositesv1alpha1.DecoRedirect) (bool, error) {
+	log := logf.FromContext(ctx)
+
+	cert := &cmv1.Certificate{}
+	if err := r.Get(ctx, types.NamespacedName{Name: resourceName(rd.Spec.From), Namespace: rd.Namespace}, cert); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+
+	// Skip if already being deleted or not in the Failed backoff state.
+	if cert.DeletionTimestamp != nil || !isCertFailed(cert) {
+		return false, nil
+	}
+
+	dnsReady := r.DNSReadyFunc
+	if dnsReady == nil {
+		dnsReady = r.isDNSReady
+	}
+	if !dnsReady(ctx, rd.Spec.From) {
+		log.Info("certificate in Failed backoff but DNS not ready yet", "domain", rd.Spec.From)
+		return false, nil
+	}
+
+	log.Info("certificate in Failed backoff and DNS is ready — deleting to trigger retry", "domain", rd.Spec.From)
+	if err := r.Delete(ctx, cert); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	return true, nil
+}
+
+// isCertFailed reports whether the Certificate is stuck in cert-manager's exponential
+// backoff after a failed issuance attempt (Issuing=False, Reason=Failed).
+func isCertFailed(cert *cmv1.Certificate) bool {
+	for _, c := range cert.Status.Conditions {
+		if c.Type == cmv1.CertificateConditionIssuing {
+			return c.Status == cmmeta.ConditionFalse && c.Reason == "Failed"
+		}
+	}
+	return false
+}
+
+// isDNSReady checks that the domain is correctly pointing to the redirect infrastructure:
+//  1. An HTTP request returns a redirect served by the nginx (X-Redirect-By: deco header).
+//  2. No AAAA record falls within any BlockedIPv6CIDRs range, which would cause
+//     Let's Encrypt's IPv6 validation to reach the wrong server and fail the challenge.
+func (r *DecoRedirectReconciler) isDNSReady(ctx context.Context, domain string) bool {
+	httpClient := &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		Timeout:       5 * time.Second,
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+domain+"/", nil)
+	if err != nil {
+		return false
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return false
+	}
+	_ = resp.Body.Close()
+	if resp.Header.Get("X-Redirect-By") != "deco" {
+		return false
+	}
+
+	if len(r.BlockedIPv6CIDRs) == 0 {
+		return true
+	}
+
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, domain)
+	if err != nil {
+		return false
+	}
+	for _, a := range addrs {
+		ip := a.IP
+		if ip.To4() != nil {
+			continue
+		}
+		for _, blocked := range r.BlockedIPv6CIDRs {
+			if blocked.Contains(ip) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // resourceName returns a deterministic k8s-safe name for a domain, capped at 253 chars.
