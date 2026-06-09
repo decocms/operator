@@ -25,6 +25,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/deco-sites/decofile-operator/internal/httpx"
 )
 
 const (
@@ -45,11 +47,11 @@ func BuildZipURL(org, repo, commit string) string {
 // httpClient is a shared HTTP client with timeout for GitHub downloads
 var httpClient = &http.Client{
 	Timeout: downloadTimeout,
-	Transport: &http.Transport{
+	Transport: httpx.WithUserAgent(&http.Transport{
 		MaxIdleConns:        10,
 		MaxIdleConnsPerHost: 5,
 		IdleConnTimeout:     90 * time.Second,
-	},
+	}),
 }
 
 // DownloadAndExtract downloads ZIP from GitHub and extracts files from specified path

@@ -24,6 +24,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
+	"github.com/deco-sites/decofile-operator/internal/httpx"
 )
 
 // DecoRedirectReconciler reconciles a DecoRedirect object.
@@ -265,6 +266,7 @@ func (r *DecoRedirectReconciler) isDNSReady(ctx context.Context, domain string) 
 	httpClient := &http.Client{
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		Timeout:       5 * time.Second,
+		Transport:     httpx.WithUserAgent(nil),
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+domain+"/", nil)
 	if err != nil {
