@@ -18,8 +18,16 @@ package httpx
 
 import "net/http"
 
+// version is overridden at build time via
+//
+//	-ldflags "-X github.com/deco-sites/decofile-operator/internal/httpx.version=v0.4.0"
+//
+// In local/dev builds it remains "dev".
+var version = "dev"
+
 // UserAgent is sent on every outbound HTTP request made by the operator.
-const UserAgent = "deco-operator"
+// Format follows RFC 7231: product/version (comment).
+var UserAgent = "decofile-operator/" + version + " (+https://github.com/decocms/operator)"
 
 type userAgentTransport struct {
 	base http.RoundTripper

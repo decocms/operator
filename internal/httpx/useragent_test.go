@@ -20,8 +20,16 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 )
+
+func TestUserAgentFormat(t *testing.T) {
+	re := regexp.MustCompile(`^decofile-operator/\S+ \(\+https://github\.com/decocms/operator\)$`)
+	if !re.MatchString(UserAgent) {
+		t.Fatalf("UserAgent %q does not match expected RFC 7231 format", UserAgent)
+	}
+}
 
 func TestWithUserAgent_InjectsDefault(t *testing.T) {
 	var got string
