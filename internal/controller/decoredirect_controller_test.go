@@ -71,7 +71,7 @@ var _ = Describe("DecoRedirect Controller", func() {
 			Expect(cert.Spec.SecretName).To(Equal("tls-client-com"))
 		})
 
-		It("should create an Ingress with server-snippet redirect preserving path", func() {
+		It("should create an Ingress with configuration-snippet redirect preserving path", func() {
 			_, err := newReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -80,7 +80,7 @@ var _ = Describe("DecoRedirect Controller", func() {
 				Name: "redirect-client-com", Namespace: rdNS,
 			}, ing)).To(Succeed())
 			Expect(*ing.Spec.IngressClassName).To(Equal("nginx"))
-			Expect(ing.Annotations["nginx.ingress.kubernetes.io/server-snippet"]).To(Equal("return 307 " + toDomain + "$request_uri;"))
+			Expect(ing.Annotations["nginx.ingress.kubernetes.io/configuration-snippet"]).To(Equal("return 307 " + toDomain + "$request_uri;"))
 			Expect(ing.Spec.TLS[0].Hosts).To(ContainElement(fromDomain))
 			Expect(ing.Spec.TLS[0].SecretName).To(Equal("tls-client-com"))
 			Expect(ing.Spec.Rules[0].Host).To(Equal(fromDomain))
@@ -149,7 +149,7 @@ var _ = Describe("DecoRedirect Controller", func() {
 			Expect(count).To(Equal(1))
 		})
 
-		It("should use return 307 in server-snippet by default", func() {
+		It("should use return 307 in configuration-snippet by default", func() {
 			_, err := newReconciler().Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -157,10 +157,10 @@ var _ = Describe("DecoRedirect Controller", func() {
 			Expect(k8sClient.Get(ctx, types.NamespacedName{
 				Name: "redirect-client-com", Namespace: rdNS,
 			}, ing)).To(Succeed())
-			Expect(ing.Annotations["nginx.ingress.kubernetes.io/server-snippet"]).To(ContainSubstring("return 307 "))
+			Expect(ing.Annotations["nginx.ingress.kubernetes.io/configuration-snippet"]).To(ContainSubstring("return 307 "))
 		})
 
-		It("should use return 301 in server-snippet when redirectCode is 301", func() {
+		It("should use return 301 in configuration-snippet when redirectCode is 301", func() {
 			code := 301
 			rd301 := &decositesv1alpha1.DecoRedirect{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-redirect-301", Namespace: rdNS},
@@ -181,7 +181,7 @@ var _ = Describe("DecoRedirect Controller", func() {
 			Expect(k8sClient.Get(ctx, types.NamespacedName{
 				Name: "redirect-redirect301-com", Namespace: rdNS,
 			}, ing)).To(Succeed())
-			Expect(ing.Annotations["nginx.ingress.kubernetes.io/server-snippet"]).To(ContainSubstring("return 301 "))
+			Expect(ing.Annotations["nginx.ingress.kubernetes.io/configuration-snippet"]).To(ContainSubstring("return 301 "))
 		})
 	})
 
