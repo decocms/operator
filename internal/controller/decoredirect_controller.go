@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -137,11 +136,12 @@ func (r *DecoRedirectReconciler) reconcileIngress(ctx context.Context, rd *decos
 		code = *rd.Spec.RedirectCode
 	}
 
-	// nginx returns the configured redirect code (default 307) via the permanent-redirect annotation before reaching any backend.
+	// server-snippet injects a raw nginx return directive that preserves the full request path and
+	// query string via $request_uri. The permanent-redirect annotation cannot be used here because
+	// the nginx admission webhook rejects values containing nginx variables (e.g. $request_uri).
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, ingress, func() error {
 		ingress.Annotations = map[string]string{
-			"nginx.ingress.kubernetes.io/permanent-redirect":      rd.Spec.To + "$request_uri",
-			"nginx.ingress.kubernetes.io/permanent-redirect-code": strconv.Itoa(code),
+			"nginx.ingress.kubernetes.io/server-snippet": fmt.Sprintf("return %d %s$request_uri;", code, rd.Spec.To),
 		}
 		ingress.Spec = networkingv1.IngressSpec{
 			IngressClassName: &r.IngressClass,
