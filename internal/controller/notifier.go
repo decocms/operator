@@ -28,6 +28,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/deco-sites/decofile-operator/internal/httpx"
 )
 
 const (
@@ -57,7 +59,7 @@ func NewHTTPClient() *http.Client {
 	}
 	return &http.Client{
 		Timeout:   reloadTimeout,
-		Transport: transport,
+		Transport: httpx.WithUserAgent(transport),
 	}
 }
 
