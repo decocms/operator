@@ -136,12 +136,14 @@ func (r *DecoRedirectReconciler) reconcileIngress(ctx context.Context, rd *decos
 		code = *rd.Spec.RedirectCode
 	}
 
-	// server-snippet injects a raw nginx return directive that preserves the full request path and
-	// query string via $request_uri. The permanent-redirect annotation cannot be used here because
-	// the nginx admission webhook rejects values containing nginx variables (e.g. $request_uri).
+	// configuration-snippet injects the return directive into the location / block so the path and
+	// query string are preserved via $request_uri. server-snippet cannot be used because it runs at
+	// the server block level (HTTP + HTTPS) before location matching, which intercepts Let's Encrypt
+	// HTTP-01 ACME challenge requests (/.well-known/acme-challenge/) and breaks cert issuance.
+	// With configuration-snippet the cert-manager ACME solver location (more specific path) wins.
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, ingress, func() error {
 		ingress.Annotations = map[string]string{
-			"nginx.ingress.kubernetes.io/server-snippet": fmt.Sprintf("return %d %s$request_uri;", code, rd.Spec.To),
+			"nginx.ingress.kubernetes.io/configuration-snippet": fmt.Sprintf("return %d %s$request_uri;", code, rd.Spec.To),
 		}
 		ingress.Spec = networkingv1.IngressSpec{
 			IngressClassName: &r.IngressClass,
