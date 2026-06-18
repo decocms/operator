@@ -80,7 +80,7 @@ var _ = Describe("DecoRedirect Controller", func() {
 				Name: "redirect-client-com", Namespace: rdNS,
 			}, ing)).To(Succeed())
 			Expect(*ing.Spec.IngressClassName).To(Equal("nginx"))
-			Expect(ing.Annotations["nginx.ingress.kubernetes.io/permanent-redirect"]).To(Equal(toDomain))
+			Expect(ing.Annotations["nginx.ingress.kubernetes.io/permanent-redirect"]).To(Equal(toDomain + "$request_uri"))
 			Expect(ing.Spec.TLS[0].Hosts).To(ContainElement(fromDomain))
 			Expect(ing.Spec.TLS[0].SecretName).To(Equal("tls-client-com"))
 			Expect(ing.Spec.Rules[0].Host).To(Equal(fromDomain))

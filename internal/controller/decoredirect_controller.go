@@ -140,7 +140,7 @@ func (r *DecoRedirectReconciler) reconcileIngress(ctx context.Context, rd *decos
 	// nginx returns the configured redirect code (default 307) via the permanent-redirect annotation before reaching any backend.
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, ingress, func() error {
 		ingress.Annotations = map[string]string{
-			"nginx.ingress.kubernetes.io/permanent-redirect":      rd.Spec.To,
+			"nginx.ingress.kubernetes.io/permanent-redirect":      rd.Spec.To + "$request_uri",
 			"nginx.ingress.kubernetes.io/permanent-redirect-code": strconv.Itoa(code),
 		}
 		ingress.Spec = networkingv1.IngressSpec{
