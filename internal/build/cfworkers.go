@@ -4,7 +4,6 @@ package build
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"os"
 
@@ -14,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
+	"github.com/deco-sites/decofile-operator/internal/envparse"
 )
 
 // JobName returns a deterministic job name: sha256("build-{commitSha}-{site}"), first 4 bytes as hex.
@@ -202,8 +202,8 @@ func CfWorkersConfigFromEnv() CfWorkersConfig {
 		BuilderImage:          os.Getenv("CFWORKERS_BUILDER_IMAGE"),
 		BuilderServiceAccount: os.Getenv("BUILD_SERVICE_ACCOUNT"),
 		TTLSeconds:            10 * 60,
-		NodeSelector:          parseNodeSelector(os.Getenv("BUILD_NODE_SELECTOR")),
-		Tolerations:           parseTolerations(os.Getenv("BUILD_TOLERATIONS")),
+		NodeSelector:          envparse.NodeSelector(os.Getenv("BUILD_NODE_SELECTOR")),
+		Tolerations:           envparse.Tolerations(os.Getenv("BUILD_TOLERATIONS")),
 		S3: S3Config{
 			Region:          os.Getenv("S3_REGION"),
 			LogsBucket:      os.Getenv("S3_LOGS_BUCKET"),
@@ -211,35 +211,6 @@ func CfWorkersConfigFromEnv() CfWorkersConfig {
 			StateBucket:     os.Getenv("S3_STATE_BUCKET"),
 		},
 	}
-}
-
-// parseNodeSelector parses a JSON object string into a map.
-// Returns nil on empty input or parse error.
-func parseNodeSelector(s string) map[string]string {
-	if s == "" {
-		return nil
-	}
-	m := map[string]string{}
-	if err := json.Unmarshal([]byte(s), &m); err != nil {
-		return nil
-	}
-	if len(m) == 0 {
-		return nil
-	}
-	return m
-}
-
-// parseTolerations unmarshals a JSON array of Toleration objects.
-// Returns nil on empty input or parse error.
-func parseTolerations(s string) []corev1.Toleration {
-	if s == "" {
-		return nil
-	}
-	var t []corev1.Toleration
-	if err := json.Unmarshal([]byte(s), &t); err != nil {
-		return nil
-	}
-	return t
 }
 
 type cfWorkersBuilder struct {

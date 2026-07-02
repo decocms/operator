@@ -24,7 +24,24 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
+// Decofile source kinds (DecofileSpec.Source).
+const (
+	SourceInline = "inline"
+	SourceGitHub = "github"
+)
+
+// Decofile delivery targets (DecofileSpec.Target) — selects the FastDeployment
+// strategy that reconciles the CR.
+const (
+	// TargetConfigMap writes a ConfigMap + notifies Knative pods (default).
+	TargetConfigMap = "configmap"
+	// TargetTanstackKV runs a Job that pushes the decofile to Cloudflare KV.
+	TargetTanstackKV = "tanstack-kv"
+)
+
 // DecofileSpec defines the desired state of Decofile.
+// +kubebuilder:validation:XValidation:rule="self.target != 'tanstack-kv' || has(self.tanstackKV)",message="spec.tanstackKV is required when target is tanstack-kv"
+// +kubebuilder:validation:XValidation:rule="self.target != 'tanstack-kv' || self.source == 'github'",message="source must be 'github' when target is tanstack-kv"
 type DecofileSpec struct {
 	// Source specifies where to get the configuration data
 	// +kubebuilder:validation:Required
@@ -43,6 +60,33 @@ type DecofileSpec struct {
 	// Pods are queried using the app.deco/deploymentId label
 	// +optional
 	DeploymentId string `json:"deploymentId,omitempty"`
+
+	// Target selects how this Decofile is delivered (the FastDeployment strategy).
+	// "configmap" (default) writes a ConfigMap and notifies Knative pods.
+	// "tanstack-kv" runs a self-cleaning Job that pushes the decofile to Cloudflare
+	// KV — the fast-deploy content path for TanStack/Workers sites.
+	// +kubebuilder:validation:Enum=configmap;tanstack-kv
+	// +kubebuilder:default=configmap
+	// +optional
+	Target string `json:"target,omitempty"`
+
+	// TanstackKV configures the tanstack-kv target. Required when target=tanstack-kv.
+	// The repo/commit to sync come from spec.github (source=github).
+	// +optional
+	TanstackKV *TanstackKVTarget `json:"tanstackKV,omitempty"`
+}
+
+// TanstackKVTarget configures Cloudflare KV fast-deploy for a TanStack/Workers site.
+type TanstackKVTarget struct {
+	// KVNamespaceID is the Cloudflare KV namespace id for this site (one per site).
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	KVNamespaceID string `json:"kvNamespaceId"`
+
+	// SiteOrigin is the deployed site origin used to POST /_cache/purge after the
+	// sync (e.g. https://www.example.com). Optional — purge is skipped when empty.
+	// +optional
+	SiteOrigin string `json:"siteOrigin,omitempty"`
 }
 
 // InlineSource contains direct JSON configuration data
@@ -98,6 +142,10 @@ type DecofileStatus struct {
 	// GitHubCommit stores the commit SHA if using GitHub source
 	// +optional
 	GitHubCommit string `json:"githubCommit,omitempty"`
+
+	// JobName is the K8s Job name for the current tanstack-kv sync (target=tanstack-kv).
+	// +optional
+	JobName string `json:"jobName,omitempty"`
 }
 
 // +kubebuilder:object:root=true

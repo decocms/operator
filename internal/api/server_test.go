@@ -21,7 +21,7 @@ func TestBasicAuth_Unauthorized(t *testing.T) {
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = decositesv1alpha1.AddToScheme(scheme)
 	h := api.NewHandlers(fake.NewClientBuilder().WithScheme(scheme).Build(), "deco-redirect-system")
-	srv := api.NewServer(":0", "user", "pass", h)
+	srv := api.NewServer(":0", "user", "pass", h, nil)
 	_ = srv // server registered
 
 	// Build handler directly to test without starting the TCP listener
@@ -40,7 +40,7 @@ func TestCreate_HappyPath(t *testing.T) {
 	_ = decositesv1alpha1.AddToScheme(scheme)
 	fc := fake.NewClientBuilder().WithScheme(scheme).Build()
 	h := api.NewHandlers(fc, "deco-redirect-system")
-	srv := api.NewServer(":0", "user", "pass", h)
+	srv := api.NewServer(":0", "user", "pass", h, nil)
 
 	body, _ := json.Marshal(map[string]string{"from": "example.com", "to": "https://www.example.com"})
 	req := httptest.NewRequest(http.MethodPost, "/redirects", bytes.NewReader(body))
@@ -64,7 +64,7 @@ func TestCreate_NormalizesToScheme(t *testing.T) {
 	_ = decositesv1alpha1.AddToScheme(scheme)
 	fc := fake.NewClientBuilder().WithScheme(scheme).Build()
 	h := api.NewHandlers(fc, "deco-redirect-system")
-	srv := api.NewServer(":0", "user", "pass", h)
+	srv := api.NewServer(":0", "user", "pass", h, nil)
 
 	body, _ := json.Marshal(map[string]string{"from": "example.com", "to": "www.example.com"})
 	req := httptest.NewRequest(http.MethodPost, "/redirects", bytes.NewReader(body))
@@ -91,7 +91,7 @@ func TestDelete_HappyPath(t *testing.T) {
 		Spec:       decositesv1alpha1.DecoRedirectSpec{From: "example.com", To: "https://www.example.com"},
 	}).Build()
 	h := api.NewHandlers(fc, "deco-redirect-system")
-	srv := api.NewServer(":0", "user", "pass", h)
+	srv := api.NewServer(":0", "user", "pass", h, nil)
 
 	req := httptest.NewRequest(http.MethodDelete, "/redirects/example.com", nil)
 	req.SetBasicAuth("user", "pass")
@@ -111,7 +111,7 @@ func TestGet_HappyPath(t *testing.T) {
 		Spec:       decositesv1alpha1.DecoRedirectSpec{From: "example.com", To: "https://www.example.com"},
 	}).Build()
 	h := api.NewHandlers(fc, "deco-redirect-system")
-	srv := api.NewServer(":0", "user", "pass", h)
+	srv := api.NewServer(":0", "user", "pass", h, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/redirects/example.com", nil)
 	req.SetBasicAuth("user", "pass")
@@ -136,7 +136,7 @@ func TestGet_NotFound(t *testing.T) {
 	_ = decositesv1alpha1.AddToScheme(scheme)
 	fc := fake.NewClientBuilder().WithScheme(scheme).Build()
 	h := api.NewHandlers(fc, "deco-redirect-system")
-	srv := api.NewServer(":0", "user", "pass", h)
+	srv := api.NewServer(":0", "user", "pass", h, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/redirects/notfound.com", nil)
 	req.SetBasicAuth("user", "pass")
@@ -156,7 +156,7 @@ func TestList_HappyPath(t *testing.T) {
 		Spec:       decositesv1alpha1.DecoRedirectSpec{From: "example.com", To: "https://www.example.com"},
 	}).Build()
 	h := api.NewHandlers(fc, "deco-redirect-system")
-	srv := api.NewServer(":0", "user", "pass", h)
+	srv := api.NewServer(":0", "user", "pass", h, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/redirects", nil)
 	req.SetBasicAuth("user", "pass")
@@ -180,7 +180,7 @@ func TestCreate_WithRedirectCode(t *testing.T) {
 	_ = decositesv1alpha1.AddToScheme(scheme)
 	fc := fake.NewClientBuilder().WithScheme(scheme).Build()
 	h := api.NewHandlers(fc, "deco-redirect-system")
-	srv := api.NewServer(":0", "user", "pass", h)
+	srv := api.NewServer(":0", "user", "pass", h, nil)
 
 	code := 301
 	body, _ := json.Marshal(map[string]interface{}{"from": "example.com", "to": "https://www.example.com", "redirectCode": code})
@@ -216,7 +216,7 @@ func TestGet_IncludesRedirectCode(t *testing.T) {
 		},
 	}).Build()
 	h := api.NewHandlers(fc, "deco-redirect-system")
-	srv := api.NewServer(":0", "user", "pass", h)
+	srv := api.NewServer(":0", "user", "pass", h, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/redirects/example.com", nil)
 	req.SetBasicAuth("user", "pass")

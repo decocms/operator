@@ -50,6 +50,8 @@ import (
 	"github.com/deco-sites/decofile-operator/internal/api"
 	"github.com/deco-sites/decofile-operator/internal/build"
 	"github.com/deco-sites/decofile-operator/internal/controller"
+	"github.com/deco-sites/decofile-operator/internal/deploy"
+	"github.com/deco-sites/decofile-operator/internal/githubapp"
 	"github.com/deco-sites/decofile-operator/internal/valkey"
 	webhookv1 "github.com/deco-sites/decofile-operator/internal/webhook/v1"
 	// +kubebuilder:scaffold:imports
@@ -336,10 +338,30 @@ func main() {
 
 	if enabled(controller.DecofileControllerName) {
 		httpClient := controller.NewHTTPClient()
+		// Fast-deploy: pluggable FastDeployment strategies for non-configmap
+		// Decofile targets. tanstack-kv runs a self-cleaning Job that pushes the
+		// decofile to Cloudflare KV (config from env; inert unless a Decofile
+		// selects the target).
+		fastDeployRegistry := deploy.NewDeploymentRegistry()
+		tkvCfg := deploy.TanstackKVConfigFromEnv()
+		// Private-repo clones use a GitHub App installation token (short-lived,
+		// repo-scoped) — same mechanism as admin. Optional: falls back to a static
+		// GITHUB_TOKEN / public-repo clone when unset.
+		if ghApp, gerr := githubapp.NewFromEnv(); gerr != nil {
+			setupLog.Error(gerr, "GitHub App disabled: invalid GITHUB_APP_* config; private-repo fast-deploy will fail")
+		} else if ghApp != nil {
+			tkvCfg.GitHubApp = ghApp
+			setupLog.Info("GitHub App configured for fast-deploy private-repo clones")
+		}
+		fastDeployRegistry.Register(
+			decositesv1alpha1.TargetTanstackKV,
+			deploy.NewTanstackKV(tkvCfg),
+		)
 		if err = (&controller.DecofileReconciler{
 			Client:     mgr.GetClient(),
 			Scheme:     mgr.GetScheme(),
 			HTTPClient: httpClient,
+			FastDeploy: fastDeployRegistry,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Decofile")
 			os.Exit(1)
@@ -404,13 +426,25 @@ func main() {
 	if enabled(api.ControllerName) {
 		apiUser := os.Getenv("OPERATOR_API_USER")
 		apiPass := os.Getenv("OPERATOR_API_PASSWORD")
-		if apiUser != "" && apiPass != "" {
+
+		// Git webhook → fast-deploy. The cloudflare-workers DeploymentTarget turns a
+		// content-only push into a Decofile CR. Authenticated by HMAC signature
+		// (GITHUB_WEBHOOK_SECRET), independent of the basic-auth redirects API.
+		targetRegistry := deploy.NewTargetRegistry()
+		targetRegistry.Register(deploy.ServingCloudflareWorker, deploy.NewCloudflareWorkersTarget())
+		webhookHandlers := api.NewWebhookHandlers(
+			mgr.GetClient(), os.Getenv("GITHUB_WEBHOOK_SECRET"), targetRegistry,
+		)
+
+		// Start the HTTP server when EITHER the redirects API (basic-auth creds) or
+		// the webhook (secret) is configured.
+		if (apiUser != "" && apiPass != "") || webhookHandlers.Enabled() {
 			h := api.NewHandlers(mgr.GetClient(), redirectNamespace)
-			if err = mgr.Add(api.NewServer(operatorAPIAddr, apiUser, apiPass, h)); err != nil {
+			if err = mgr.Add(api.NewServer(operatorAPIAddr, apiUser, apiPass, h, webhookHandlers)); err != nil {
 				setupLog.Error(err, "unable to add operator API server")
 				os.Exit(1)
 			}
-			setupLog.Info("Operator API enabled", "addr", operatorAPIAddr)
+			setupLog.Info("Operator API enabled", "addr", operatorAPIAddr, "webhook", webhookHandlers.Enabled())
 		}
 	}
 

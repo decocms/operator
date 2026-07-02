@@ -224,7 +224,7 @@ func addEnvVarsToDeployment(templatesDir string) error {
 	contentStr := string(content)
 
 	// Find the image line and add env vars after it
-	envBlock := `        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret .Values.cfworkers.builderImage .Values.cfworkers.artifactsBucket .Values.s3.region .Values.s3.logsBucket .Values.s3.stateBucket .Values.build.serviceAccount .Values.build.roleArn .Values.build.nodeSelector .Values.build.tolerations }}
+	envBlock := `        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret .Values.cfworkers.builderImage .Values.cfworkers.artifactsBucket .Values.s3.region .Values.s3.logsBucket .Values.s3.stateBucket .Values.build.serviceAccount .Values.build.roleArn .Values.build.nodeSelector .Values.build.tolerations (and .Values.fastDeploy .Values.fastDeploy.syncerImage) }}
         env:
         {{- if and .Values.github .Values.github.existingSecret }}
         - name: GITHUB_TOKEN
@@ -307,6 +307,10 @@ func addEnvVarsToDeployment(templatesDir string) error {
         - name: BUILD_TOLERATIONS
           value: {{ .tolerations | toJson | quote }}
         {{- end }}
+        {{- end }}
+        {{- if and .Values.fastDeploy .Values.fastDeploy.syncerImage }}
+        - name: DECOFILE_SYNCER_IMAGE
+          value: {{ .Values.fastDeploy.syncerImage | quote }}
         {{- end }}
         {{- end }}`
 
@@ -494,11 +498,18 @@ func addOperatorAPIEnvVars(templatesDir string) error {
         {{- end }}
         {{- end }}`
 
-	envFrom := `        {{- if .Values.operatorApi.existingSecret }}
+	envFrom := `        {{- if or .Values.secretEnv.existingSecret .Values.operatorApi.existingSecret }}
         envFrom:
+        {{- if .Values.secretEnv.existingSecret }}
+        - secretRef:
+            name: {{ .Values.secretEnv.existingSecret | quote }}
+            optional: true
+        {{- end }}
+        {{- if .Values.operatorApi.existingSecret }}
         - secretRef:
             name: {{ .Values.operatorApi.existingSecret | quote }}
             optional: true
+        {{- end }}
         {{- end }}`
 
 	// envVars injects inside the env: block; envFrom injects after env: closes, before livenessProbe

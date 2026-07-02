@@ -123,6 +123,24 @@ build:
   nodeSelector: {}      # Default nodeSelector for build pods (overridable per-site via spec.build.nodeSelector)
   tolerations: []       # Default tolerations for build pods (overridable per-site via spec.build.tolerations)
 
+# ── Unified secret env ───────────────────────────────────────────────────────
+# A single Secret whose KEYS ARE THE ENV VAR NAMES (e.g. CLOUDFLARE_API_WORKERS_TOKEN,
+# CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_KV_API_TOKEN, GITHUB_TOKEN, GITHUB_APP_ID,
+# GITHUB_APP_PRIVATE_KEY, GITHUB_WEBHOOK_SECRET, DECO_PURGE_TOKEN). Injected
+# wholesale via envFrom, so adding a new secret env is just a new key on the
+# backing ExternalSecret — no chart change. Preferred over the per-feature
+# existingSecret knobs above; those still work when set (and win, being explicit env).
+secretEnv:
+  existingSecret: ""
+
+# ── Fast deploy (KV-first content) ───────────────────────────────────────────
+# Git-webhook → Decofile CR → self-cleaning KV-sync Job. The webhook/KV/GitHub-App
+# secrets come from secretEnv above (GITHUB_WEBHOOK_SECRET enables the endpoint;
+# the operator-api controller must also be enabled). Only the non-secret syncer
+# image lives here.
+fastDeploy:
+  syncerImage: ""            # decofile-syncer image (repository:tag) → DECOFILE_SYNCER_IMAGE
+
 # ── Operator Management API ──────────────────────────────────────────────────
 # General HTTP API for managing operator resources (DecoRedirects, etc.).
 # Enabled when username+password (or existingSecret) are set.

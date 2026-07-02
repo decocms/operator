@@ -179,6 +179,34 @@ spec:
                 required:
                 - source
                 type: object
+              fastDeploy:
+                description: |-
+                  FastDeploy enables and configures git-driven, KV-first content fast-deploy
+                  for this site. When Enabled, content-only pushes (touching only
+                  .deco/blocks/**) sync to Cloudflare KV via a Decofile CR instead of a full
+                  build/deploy. This is the per-site config the webhook's DeploymentTarget
+                  reads to decide whether and how to fast-deploy.
+                properties:
+                  enabled:
+                    description: |-
+                      Enabled gates the fast-deploy content path. When false, content pushes take
+                      the normal build/deploy path.
+                    type: boolean
+                  kvNamespaceId:
+                    description: |-
+                      KVNamespaceID is the Cloudflare KV namespace id for this site (one per site).
+                      Required when enabled (enforced via the XValidation rule on this struct).
+                    type: string
+                  siteOrigin:
+                    description: |-
+                      SiteOrigin is the deployed site origin used for cache purge after a sync
+                      (e.g. https://www.example.com). Optional.
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: kvNamespaceId is required when fastDeploy is enabled
+                  rule: '!self.enabled || (has(self.kvNamespaceId) && size(self.kvNamespaceId)
+                    > 0)'
               framework:
                 description: Framework is the site framework. deno | tanstack | next
                   | remix | static

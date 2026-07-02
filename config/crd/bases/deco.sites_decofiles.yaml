@@ -90,9 +90,43 @@ spec:
                 - inline
                 - github
                 type: string
+              tanstackKV:
+                description: |-
+                  TanstackKV configures the tanstack-kv target. Required when target=tanstack-kv.
+                  The repo/commit to sync come from spec.github (source=github).
+                properties:
+                  kvNamespaceId:
+                    description: KVNamespaceID is the Cloudflare KV namespace id for
+                      this site (one per site).
+                    minLength: 1
+                    type: string
+                  siteOrigin:
+                    description: |-
+                      SiteOrigin is the deployed site origin used to POST /_cache/purge after the
+                      sync (e.g. https://www.example.com). Optional — purge is skipped when empty.
+                    type: string
+                required:
+                - kvNamespaceId
+                type: object
+              target:
+                default: configmap
+                description: |-
+                  Target selects how this Decofile is delivered (the FastDeployment strategy).
+                  "configmap" (default) writes a ConfigMap and notifies Knative pods.
+                  "tanstack-kv" runs a self-cleaning Job that pushes the decofile to Cloudflare
+                  KV — the fast-deploy content path for TanStack/Workers sites.
+                enum:
+                - configmap
+                - tanstack-kv
+                type: string
             required:
             - source
             type: object
+            x-kubernetes-validations:
+            - message: spec.tanstackKV is required when target is tanstack-kv
+              rule: self.target != 'tanstack-kv' || has(self.tanstackKV)
+            - message: source must be 'github' when target is tanstack-kv
+              rule: self.target != 'tanstack-kv' || self.source == 'github'
           status:
             description: DecofileStatus defines the observed state of Decofile.
             properties:
@@ -160,6 +194,10 @@ spec:
                 type: string
               githubCommit:
                 description: GitHubCommit stores the commit SHA if using GitHub source
+                type: string
+              jobName:
+                description: JobName is the K8s Job name for the current tanstack-kv
+                  sync (target=tanstack-kv).
                 type: string
               lastUpdated:
                 description: LastUpdated is the timestamp of the last update
