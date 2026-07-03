@@ -35,6 +35,33 @@ type DecoSpec struct {
 	// Admin adds entries to Previews.Active on PR open and removes on PR close.
 	// +optional
 	Previews *DecoPreviewPolicy `json:"previews,omitempty"`
+
+	// FastDeploy enables and configures git-driven, KV-first content fast-deploy
+	// for this site. When Enabled, content-only pushes (touching only
+	// .deco/blocks/**) sync to Cloudflare KV via a Decofile CR instead of a full
+	// build/deploy. This is the per-site config the webhook's DeploymentTarget
+	// reads to decide whether and how to fast-deploy.
+	// +optional
+	FastDeploy *DecoFastDeploy `json:"fastDeploy,omitempty"`
+}
+
+// DecoFastDeploy configures KV-first content fast-deploy for a site.
+// +kubebuilder:validation:XValidation:rule="!self.enabled || (has(self.kvNamespaceId) && size(self.kvNamespaceId) > 0)",message="kvNamespaceId is required when fastDeploy is enabled"
+type DecoFastDeploy struct {
+	// Enabled gates the fast-deploy content path. When false, content pushes take
+	// the normal build/deploy path.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// KVNamespaceID is the Cloudflare KV namespace id for this site (one per site).
+	// Required when enabled (enforced via the XValidation rule on this struct).
+	// +optional
+	KVNamespaceID string `json:"kvNamespaceId,omitempty"`
+
+	// SiteOrigin is the deployed site origin used for cache purge after a sync
+	// (e.g. https://www.example.com). Optional.
+	// +optional
+	SiteOrigin string `json:"siteOrigin,omitempty"`
 }
 
 // DecoEnvVar is a plain environment variable injected into the build Job.

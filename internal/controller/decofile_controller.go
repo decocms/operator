@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"time"
 
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,6 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
+	"github.com/deco-sites/decofile-operator/internal/deploy"
 )
 
 const (
@@ -58,6 +60,9 @@ type DecofileReconciler struct {
 	// HTTPClient is a shared HTTP client for pod notifications.
 	// It should be created once and reused to prevent connection leaks.
 	HTTPClient *http.Client
+	// FastDeploy dispatches non-configmap Decofile targets (e.g. tanstack-kv) to
+	// a pluggable FastDeployment strategy. Nil = only the default ConfigMap path.
+	FastDeploy *deploy.DeploymentRegistry
 }
 
 // +kubebuilder:rbac:groups=deco.sites,resources=decofiles,verbs=get;list;watch;create;update;patch;delete
@@ -67,6 +72,7 @@ type DecofileReconciler struct {
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups=serving.knative.dev,resources=revisions,verbs=get;list;watch
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -93,6 +99,20 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	log.V(1).Info("Fetched Decofile", "duration", time.Since(fetchStart))
+
+	// Pluggable delivery: non-configmap targets (e.g. tanstack-kv KV sync) are
+	// driven by a FastDeployment strategy that owns its own child resources +
+	// status. The default/empty target falls through to the ConfigMap + Knative
+	// path below.
+	if r.FastDeploy != nil && decofile.Spec.Target != "" &&
+		decofile.Spec.Target != decositesv1alpha1.TargetConfigMap {
+		if impl, ok := r.FastDeploy.For(decofile.Spec.Target); ok {
+			return impl.Reconcile(ctx, r.Client, r.Scheme, decofile)
+		}
+		log.Info("No FastDeployment registered for Decofile target; ignoring",
+			"target", decofile.Spec.Target)
+		return ctrl.Result{}, nil
+	}
 
 	// Sync Revision ownerReferences so deletion cascades when the Knative
 	// Revision referencing this Decofile is garbage-collected.
@@ -542,6 +562,7 @@ func (r *DecofileReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&decositesv1alpha1.Decofile{}).
 		Owns(&corev1.ConfigMap{}).
+		Owns(&batchv1.Job{}).
 		Watches(
 			&servingv1.Revision{},
 			handler.EnqueueRequestsFromMapFunc(r.mapRevisionToDecofile),

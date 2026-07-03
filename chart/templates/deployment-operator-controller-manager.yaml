@@ -47,7 +47,7 @@ spec:
         command:
         - /manager
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) .Values.operatorApi.existingSecret (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret .Values.cfworkers.builderImage .Values.cfworkers.artifactsBucket .Values.s3.region .Values.s3.logsBucket .Values.s3.stateBucket .Values.build.serviceAccount .Values.build.roleArn .Values.build.nodeSelector .Values.build.tolerations }}
+        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) .Values.operatorApi.existingSecret (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret .Values.cfworkers.builderImage .Values.cfworkers.artifactsBucket .Values.s3.region .Values.s3.logsBucket .Values.s3.stateBucket .Values.build.serviceAccount .Values.build.roleArn .Values.build.nodeSelector .Values.build.tolerations (and .Values.fastDeploy .Values.fastDeploy.syncerImage) }}
         env:
         {{- if and .Values.github .Values.github.existingSecret }}
         - name: GITHUB_TOKEN
@@ -131,6 +131,10 @@ spec:
           value: {{ .tolerations | toJson | quote }}
         {{- end }}
         {{- end }}
+        {{- if and .Values.fastDeploy .Values.fastDeploy.syncerImage }}
+        - name: DECOFILE_SYNCER_IMAGE
+          value: {{ .Values.fastDeploy.syncerImage | quote }}
+        {{- end }}
         {{- if .Values.operatorApi.existingSecret }}
         {{- if .Values.operatorApi.addr }}
         - name: OPERATOR_API_ADDR
@@ -138,11 +142,18 @@ spec:
         {{- end }}
         {{- end }}
         {{- end }}
-        {{- if .Values.operatorApi.existingSecret }}
+        {{- if or .Values.secretEnv.existingSecret .Values.operatorApi.existingSecret }}
         envFrom:
+        {{- if .Values.secretEnv.existingSecret }}
+        - secretRef:
+            name: {{ .Values.secretEnv.existingSecret | quote }}
+            optional: true
+        {{- end }}
+        {{- if .Values.operatorApi.existingSecret }}
         - secretRef:
             name: {{ .Values.operatorApi.existingSecret | quote }}
             optional: true
+        {{- end }}
         {{- end }}
         livenessProbe:
           httpGet:

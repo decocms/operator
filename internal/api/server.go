@@ -17,16 +17,27 @@ type Server struct {
 	addr    string
 }
 
-func NewServer(addr, user, pass string, h *Handlers) *Server {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /redirects", h.list)
-	mux.HandleFunc("POST /redirects", h.create)
-	mux.HandleFunc("GET /redirects/{domain}", h.get)
-	mux.HandleFunc("DELETE /redirects/{domain}", h.delete)
-	return &Server{
-		addr:    addr,
-		handler: basicAuth(user, pass, mux),
+func NewServer(addr, user, pass string, h *Handlers, wh *WebhookHandlers) *Server {
+	// Redirects API — guarded by basic auth.
+	redirects := http.NewServeMux()
+	redirects.HandleFunc("GET /redirects", h.list)
+	redirects.HandleFunc("POST /redirects", h.create)
+	redirects.HandleFunc("GET /redirects/{domain}", h.get)
+	redirects.HandleFunc("DELETE /redirects/{domain}", h.delete)
+
+	root := http.NewServeMux()
+	// The git webhook authenticates via its HMAC signature, NOT basic auth, so
+	// it is mounted on the root mux outside the basic-auth wrapper.
+	if wh.Enabled() {
+		root.HandleFunc("POST /webhooks/github", wh.handleGitHub)
 	}
+	// The redirects API is mounted only when basic-auth creds are configured, so
+	// a webhook-only deployment never exposes it unauthenticated.
+	if user != "" && pass != "" {
+		root.Handle("/", basicAuth(user, pass, redirects))
+	}
+
+	return &Server{addr: addr, handler: root}
 }
 
 func (s *Server) Start(ctx context.Context) error {
