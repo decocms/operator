@@ -36,7 +36,12 @@ const requeueWhileRunning = 10 * time.Second
 type TanstackKVConfig struct {
 	// SyncerImage is the decofile-syncer image (repository:tag).
 	SyncerImage string
-	// ServiceAccount is the K8s ServiceAccount the sync pod runs as.
+	// ServiceAccount optionally pins the ServiceAccount for the sync pod. Empty
+	// (the default) means the namespace's "default" SA — the sync Job needs no
+	// special identity (it clones via a GitHub token and writes KV via a CF
+	// token, both from env; no AWS/IRSA, no Kubernetes API). Do NOT default this
+	// to the build SA: that only exists in the operator namespace, so it would
+	// break sync Jobs created in a site's own namespace.
 	ServiceAccount string
 	// GithubToken is a static fallback for cloning private site repos, used only
 	// when GitHubApp is nil (no GitHub App configured).
@@ -59,7 +64,7 @@ type TanstackKVConfig struct {
 func TanstackKVConfigFromEnv() TanstackKVConfig {
 	return TanstackKVConfig{
 		SyncerImage:    os.Getenv("DECOFILE_SYNCER_IMAGE"),
-		ServiceAccount: os.Getenv("BUILD_SERVICE_ACCOUNT"),
+		ServiceAccount: os.Getenv("DECOFILE_SYNC_SERVICE_ACCOUNT"),
 		GithubToken:    os.Getenv("GITHUB_TOKEN"),
 		CfAccountId:    os.Getenv("CLOUDFLARE_ACCOUNT_ID"),
 		CfApiToken:     os.Getenv("CLOUDFLARE_KV_API_TOKEN"),
