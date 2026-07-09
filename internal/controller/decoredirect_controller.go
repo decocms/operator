@@ -264,20 +264,25 @@ func isCertFailed(cert *cmv1.Certificate) bool {
 //  2. No AAAA record falls within any BlockedIPv6CIDRs range, which would cause
 //     Let's Encrypt's IPv6 validation to reach the wrong server and fail the challenge.
 func (r *DecoRedirectReconciler) isDNSReady(ctx context.Context, domain string) bool {
+	log := logf.FromContext(ctx)
+
 	httpClient := &http.Client{
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		Timeout:       5 * time.Second,
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+domain+"/", nil)
 	if err != nil {
+		log.Error(err, "isDNSReady: failed to build HTTP request", "domain", domain)
 		return false
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
+		log.Error(err, "isDNSReady: HTTP check failed", "domain", domain)
 		return false
 	}
 	_ = resp.Body.Close()
-	if resp.Header.Get("X-Redirect-By") != "deco" {
+	if h := resp.Header.Get("X-Redirect-By"); h != "deco" {
+		log.Info("isDNSReady: X-Redirect-By header mismatch", "domain", domain, "got", h)
 		return false
 	}
 
@@ -287,6 +292,7 @@ func (r *DecoRedirectReconciler) isDNSReady(ctx context.Context, domain string) 
 
 	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, domain)
 	if err != nil {
+		log.Error(err, "isDNSReady: DNS lookup failed", "domain", domain)
 		return false
 	}
 	for _, a := range addrs {
@@ -296,6 +302,7 @@ func (r *DecoRedirectReconciler) isDNSReady(ctx context.Context, domain string) 
 		}
 		for _, blocked := range r.BlockedIPv6CIDRs {
 			if blocked.Contains(ip) {
+				log.Info("isDNSReady: blocked IPv6 found", "domain", domain, "ip", ip, "cidr", blocked)
 				return false
 			}
 		}
