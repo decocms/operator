@@ -4,7 +4,7 @@ How to enable **KV-first content fast-deploy** for a site so CMS content edits
 (`.deco/blocks/**`) go live in ~10s on a `git push`, **without** a `wrangler deploy`.
 
 > Companion docs: platform/ops setup in [`fast-deploy-webhook.md`](./fast-deploy-webhook.md);
-> runtime internals in `@decocms/start` `docs/fast-deploy.md`.
+> runtime internals + per-site build/deploy commands in `@decocms/blocks` `docs/fast-deploy.md`.
 
 ## Mental model (read this first)
 
@@ -12,10 +12,12 @@ Two sides must **both** be wired, per site — miss one and nothing happens:
 
 | Side | Who | What | Effect |
 |------|-----|------|--------|
-| **Read** | the site's Worker (`@decocms/start`) | `DECO_KV` binding + `DECO_FAST_DEPLOY=1` | worker serves content from KV, polling `index:revision` every ~10s |
-| **Write** | the operator (`Deco` CR) | `spec.fastDeploy.enabled + kvNamespaceId` | on a content push, operator syncs `.deco/blocks` → that KV namespace |
+| **Read** | the site's Worker (`@decocms/tanstack`) | `DECO_KV` binding + `DECO_FAST_DEPLOY=1` + `DECO_DEPLOYMENT_ID` (per deploy) | worker serves content from its own `decofile:<id>`, polling `index:revision:<id>` every ~10s |
+| **Write** | the operator (`Deco` CR) | `spec.fastDeploy.enabled + kvNamespaceId` | on a content push, operator resolves `index:live` and syncs `.deco/blocks` → the live deployment's key |
 
 The `kvNamespaceId` on the `Deco` CR **must equal** the `DECO_KV` id on the worker — that's the shared channel. One KV namespace **per site** (see [tenancy](#constraints)).
+
+Content is keyed **per deployment** (`decofile:<id>`, `id` = commit sha). A code deploy seeds its own content at build time and flips the `index:live` pointer post-activation; a content-only push updates whichever id is live. **Until a site has deployed once with fast-deploy (so `index:live` is set), content pushes park in `Waiting`** — see the build/deploy commands in `@decocms/blocks` `docs/fast-deploy.md`.
 
 ## Prerequisites (one-time, platform-wide — already done)
 
@@ -46,19 +48,28 @@ id = "<namespace id from step 1>"
 
 [vars]
 DECO_FAST_DEPLOY = "1"
+# DECO_DEPLOYMENT_ID is passed per deploy by the deploy command, not set here.
 ```
-Then **deploy the worker once** (a normal code deploy) so the binding + var take effect. The site must run a `@decocms/start` version with the KV read path.
+Then set the site's **build + deploy commands** (Cloudflare Workers Builds) so each deploy seeds its own content and flips the live pointer — see the canonical commands in `@decocms/blocks` `docs/fast-deploy.md`:
+```bash
+# build:  seed THIS commit's content under decofile:<sha>
+<build> && npx -p @decocms/blocks-cli deco-sync-blocks-to-kv --write --all --deployment-id "$WORKERS_CI_COMMIT_SHA"
+# deploy: activate with the id, then flip index:live post-activation
+wrangler deploy --var DECO_DEPLOYMENT_ID:"$WORKERS_CI_COMMIT_SHA" \
+  && npx -p @decocms/blocks-cli deco-sync-blocks-to-kv --set-live --deployment-id "$WORKERS_CI_COMMIT_SHA"
+```
+The site must run a `@decocms/tanstack` version with the per-deployment KV read path. **Deploy once** with these commands so the binding/var take effect and `index:live` is set — content pushes only fast-deploy after that.
 
-### 3. Seed the namespace (recommended, once)
-So the first cold start serves real content instead of the bundled `blocks.gen` fallback:
+### 3. (Optional) seed a specific deployment manually
+The build command above already seeds each deploy. To seed a namespace out-of-band (e.g. before the first build), target an explicit id:
 ```bash
 CF_ACCOUNT_ID=c95fc4cec7fc52453228d9db170c372c \
 CF_KV_NAMESPACE_ID=<namespace id> \
 CF_API_TOKEN=<Workers KV: Edit token> \
-  npx -p @decocms/start deco-migrate-blocks-to-kv --write
+  npx -p @decocms/blocks-cli deco-migrate-blocks-to-kv --write --deployment-id <commit sha>
 # verify:
-wrangler kv key get "index:revision"  --namespace-id <namespace id>
-wrangler kv key get "decofile:current" --namespace-id <namespace id> | head -c 200
+wrangler kv key get "index:revision:<commit sha>" --namespace-id <namespace id>
+wrangler kv key get "decofile:<commit sha>"       --namespace-id <namespace id> | head -c 200
 ```
 
 ### 4. Enable fast-deploy on the site's `Deco` CR
@@ -89,7 +100,7 @@ The live site reflects the change within ~10s (the worker's KV poll). No redeplo
 
 ## Constraints
 
-- **One KV namespace per site.** Isolation is by namespace, not key prefix (keys are fixed: `decofile:current`, `index:revision`). Two sites sharing a namespace would clobber each other. CF caps ~1000 namespaces/account.
+- **One KV namespace per site.** Isolation is by namespace, not key prefix (keys are per-deployment: `decofile:<id>`, `index:revision:<id>`, plus `index:live` + `index:deployments`). Two sites sharing a namespace would clobber each other. CF caps ~1000 namespaces/account.
 - **All fast-deploy sites live in CF account `c95fc4cec7fc52453228d9db170c372c`** (single operator KV token/account).
 - **Content-only pushes only.** A push is fast-deployed **only if every changed file is under `.deco/blocks/`**. A commit that also touches code takes the normal build/deploy path (not KV).
 
@@ -100,7 +111,8 @@ The live site reflects the change within ~10s (the worker's KV poll). No redeplo
 | No `fastdeploy-<site>` CR after push | `Deco.spec.org/site` ≠ repo owner/name; or `serving.type` ≠ `cloudflare-worker`; or `fastDeploy.enabled` not true; or the push touched non-`.deco/blocks` files | fix the CR; make the content commit blocks-only |
 | Sync Job fails | wrong `kvNamespaceId`, or `CLOUDFLARE_KV_API_TOKEN` lacks Workers KV: Edit, or private-repo clone lacks GitHub App install | check Job logs: `kubectl -n sites-<site> logs job/decofile-sync-…` |
 | Site doesn't update though KV changed | worker missing `DECO_KV` binding or `DECO_FAST_DEPLOY=1` | add both to wrangler, redeploy |
-| Worker reloads every ~10s (`decofile refreshed` looping) | `index:revision` ≠ `djb2(JSON.stringify(blocks))` — a non-script writer wrote KV | only write via `deco-sync-blocks-to-kv`; never hand-write the keys |
+| No `fastdeploy-<site>` Job, CR stuck `Synced=Unknown`/`Waiting` | `index:live` not set — the site hasn't deployed once with fast-deploy yet | run a code deploy with the build/deploy commands (step 2) so `index:live` is set |
+| Worker reloads every ~10s (`decofile refreshed` looping) | `index:revision:<id>` ≠ `djb2(JSON.stringify(blocks))` — a non-script writer wrote KV | only write via `deco-sync-blocks-to-kv`; never hand-write the keys |
 | GitHub `404` in operator logs | `GITHUB_TOKEN` missing/unauthorized for `deco-sites` | ensure it's in `hub/deco-operator/env`; restart the operator pod (envFrom is start-time only); authorize the PAT for org SSO |
 
 ## Disable / rollback
