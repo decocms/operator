@@ -77,11 +77,18 @@ func TanstackKVConfigFromEnv() TanstackKVConfig {
 
 type tanstackKV struct {
 	cfg TanstackKVConfig
+	// resolveLiveID reads the site's index:live pointer (the deployment id whose
+	// content the sync should target). Injectable so tests avoid real HTTP.
+	resolveLiveID func(ctx context.Context, namespaceID string) (string, error)
 }
 
 // NewTanstackKV returns the FastDeployment for Decofile target = "tanstack-kv".
 func NewTanstackKV(cfg TanstackKVConfig) FastDeployment {
-	return &tanstackKV{cfg: cfg}
+	d := &tanstackKV{cfg: cfg}
+	d.resolveLiveID = func(ctx context.Context, namespaceID string) (string, error) {
+		return fetchKVLiveID(ctx, cfg.CfAccountId, cfg.CfApiToken, namespaceID)
+	}
+	return d
 }
 
 // SyncJobName is the deterministic Job name for a (commit, site) sync. Uses a
@@ -116,11 +123,29 @@ func (d *tanstackKV) Reconcile(ctx context.Context, c client.Client, scheme *run
 	err := c.Get(ctx, client.ObjectKey{Name: jobName, Namespace: df.Namespace}, job)
 	switch {
 	case apierrors.IsNotFound(err):
+		// Content is keyed per deployment, so a content-only fast-deploy must
+		// target whichever version is currently LIVE. Resolve index:live before
+		// creating the Job.
+		liveID, lerr := d.resolveLiveID(ctx, df.Spec.TanstackKV.KVNamespaceID)
+		if lerr != nil {
+			return ctrl.Result{}, fmt.Errorf("resolve live deployment id: %w", lerr)
+		}
+		if liveID == "" {
+			// No code deploy has set index:live yet — there is no live version to
+			// fast-deploy onto. Wait; the first code deploy sets the pointer.
+			log.Info("index:live not set; waiting for the first code deploy", "kvNamespace", df.Spec.TanstackKV.KVNamespaceID)
+			d.setStatus(df, "", commit, metav1.ConditionUnknown, "Waiting", "index:live not set — waiting for the first code deploy to set the live pointer")
+			if err := c.Status().Update(ctx, df); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: requeueWhileRunning}, nil
+		}
+
 		githubToken, terr := d.resolveGitHubToken(ctx, df.Spec.GitHub.Org, df.Spec.GitHub.Repo)
 		if terr != nil {
 			return ctrl.Result{}, fmt.Errorf("resolve GitHub token: %w", terr)
 		}
-		job = d.buildJob(df, jobName, site, githubToken)
+		job = d.buildJob(df, jobName, site, githubToken, liveID)
 		if err := controllerutil.SetControllerReference(df, job, scheme); err != nil {
 			return ctrl.Result{}, fmt.Errorf("set owner ref on sync Job: %w", err)
 		}
@@ -130,7 +155,7 @@ func (d *tanstackKV) Reconcile(ctx context.Context, c client.Client, scheme *run
 			}
 			return ctrl.Result{}, fmt.Errorf("create sync Job: %w", err)
 		}
-		log.Info("Created decofile KV-sync Job", "job", jobName, "commit", commit, "kvNamespace", df.Spec.TanstackKV.KVNamespaceID)
+		log.Info("Created decofile KV-sync Job", "job", jobName, "commit", commit, "deploymentId", liveID, "kvNamespace", df.Spec.TanstackKV.KVNamespaceID)
 		d.setStatus(df, jobName, commit, metav1.ConditionUnknown, "Syncing", "KV sync Job created")
 		if err := c.Status().Update(ctx, df); err != nil {
 			return ctrl.Result{}, err
@@ -183,13 +208,16 @@ func (d *tanstackKV) resolveGitHubToken(ctx context.Context, owner, repo string)
 	return d.cfg.GithubToken, nil
 }
 
-func (d *tanstackKV) buildJob(df *decositesv1alpha1.Decofile, jobName, site, githubToken string) *batchv1.Job {
+func (d *tanstackKV) buildJob(df *decositesv1alpha1.Decofile, jobName, site, githubToken, deploymentID string) *batchv1.Job {
 	gh := df.Spec.GitHub
 	env := []corev1.EnvVar{
 		{Name: "GIT_REPO", Value: fmt.Sprintf("https://github.com/%s/%s", gh.Org, gh.Repo)},
 		{Name: "COMMIT_SHA", Value: gh.Commit},
 		{Name: "DECO_SITE_NAME", Value: site},
 		{Name: "BUILD_NAME", Value: jobName},
+		// The content is written under the LIVE deployment's key, not this
+		// content commit's sha — the syncer runs `--deployment-id $DEPLOYMENT_ID`.
+		{Name: "DEPLOYMENT_ID", Value: deploymentID},
 		{Name: "CF_ACCOUNT_ID", Value: d.cfg.CfAccountId},
 		{Name: "CF_API_TOKEN", Value: d.cfg.CfApiToken},
 		{Name: "CF_KV_NAMESPACE_ID", Value: df.Spec.TanstackKV.KVNamespaceID},
