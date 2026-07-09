@@ -32,7 +32,7 @@ func fetchKVLiveID(ctx context.Context, accountID, apiToken, namespaceID string)
 	if err != nil {
 		return "", err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode == http.StatusNotFound {
 		return "", nil
