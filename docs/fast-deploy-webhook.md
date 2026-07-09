@@ -9,9 +9,17 @@ git push (main, content-only: .deco/blocks/** + src/server/cms/blocks.gen.json)
   → DeploymentTarget (cloudflare-workers) resolves the repo's Deco CR,
     creates/updates a Decofile CR (target: tanstack-kv)
   → DecofileReconciler dispatches to the tanstack-kv FastDeployment
+  → resolve the site's LIVE deployment id (read index:live from KV)
+    (unset → Waiting + requeue; no live version to update yet)
   → self-cleaning Job (decofile-syncer image): clone repo@commit +
-    `deco-sync-blocks-to-kv --write --all`  →  Cloudflare KV
+    `deco-sync-blocks-to-kv --write --all --deployment-id <liveId>`  →  Cloudflare KV
 ```
+
+Content is keyed **per deployment** in KV (`decofile:<id>`, `id` = commit sha), so
+each running code version reads its own snapshot. A content-only push must update
+whichever version is currently **live**, so the reconciler resolves `index:live`
+first and passes it to the sync Job as `DEPLOYMENT_ID`. The `index:live` pointer is
+set by the site's deploy command (post-activation), not by the operator.
 
 ## 1. Operator deployment env
 
@@ -21,8 +29,8 @@ Set on the operator Deployment (provisioning):
 |-----|----------|---------|
 | `GITHUB_WEBHOOK_SECRET` | yes (enables the webhook) | HMAC secret you generate; the SAME value goes in the GitHub webhook's "Secret" field (see §3) |
 | `DECOFILE_SYNCER_IMAGE` | yes | `ghcr.io/decocms/infra_applications/decofile-syncer:<tag>` |
-| `CLOUDFLARE_ACCOUNT_ID` | yes | account id for KV writes (`CF_ACCOUNT_ID` in the Job), e.g. `c95fc4cec7fc52453228d9db170c372c` |
-| `CLOUDFLARE_KV_API_TOKEN` | yes | CF API token with **Workers KV Storage: Edit** (`CF_API_TOKEN` in the Job) |
+| `CLOUDFLARE_ACCOUNT_ID` | yes | account id for KV writes (`CF_ACCOUNT_ID` in the Job) AND the operator's `index:live` REST lookup, e.g. `c95fc4cec7fc52453228d9db170c372c` |
+| `CLOUDFLARE_KV_API_TOKEN` | yes | CF API token with **Workers KV Storage: Edit** (`CF_API_TOKEN` in the Job); the operator also uses it to read `index:live` before creating a sync Job |
 | `GITHUB_APP_ID` + `GITHUB_APP_PRIVATE_KEY` | for private repos (preferred) | GitHub App creds; the operator mints a short-lived, repo-scoped installation token per sync (same as admin). Private key PEM (PKCS#1 or PKCS#8); literal `\n` is unescaped |
 | `GITHUB_TOKEN` | private repos (fallback) | static token used only when no GitHub App is configured |
 | `DECO_PURGE_TOKEN` | optional | bearer token for the site's `/_cache/purge` |
@@ -83,10 +91,15 @@ file makes it a code push → normal build path. A `ping` event (sent on setup) 
 
 ## 4. Verify
 
+**Prerequisite:** the site must have deployed at least once with fast-deploy so
+`index:live` is set. Until then a content push parks the CR in a `Waiting`
+(`Synced=Unknown`) state and requeues — no Job is created.
+
 1. Edit a `.deco/blocks/*.json`, push to `main`.
 2. `kubectl get decofile -n <site-ns>` → a `fastdeploy-<site>` CR; a
    `decofile-sync-*` Job runs and completes; the CR's `Synced` condition flips True.
+   The Job's `DEPLOYMENT_ID` env equals the site's `index:live` id.
 3. Hit the live site — the change is visible within ~10s (the worker polls KV's
-   `index:revision`), no redeploy. Confirm exactly one `decofile refreshed` log
-   (no poll loop → the Job's revision matches the runtime's).
+   `index:revision:<its id>`), no redeploy. Confirm exactly one `decofile refreshed`
+   log (no poll loop → the Job's revision matches the runtime's).
 4. The Job/pod is GC'd by `ttlSecondsAfterFinished`.
