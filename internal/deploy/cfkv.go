@@ -8,9 +8,9 @@ import (
 )
 
 // kvLiveKey is the pointer key naming the currently-live deployment id. It MUST
-// match `LIVE_KEY` in @decocms/start (`src/cms/blockSource.ts`) — the runtime
-// and the sync scripts key content by deployment id and record the live one
-// here after a code deploy activates.
+// match `LIVE_KEY` in `@decocms/blocks` (`packages/blocks/src/cms/blockSource.ts`)
+// — the runtime and the sync scripts key content by deployment id and record the
+// live one here after a code deploy activates.
 const kvLiveKey = "index:live"
 
 // fetchKVLiveID reads the index:live pointer from a site's KV namespace via the
