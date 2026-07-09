@@ -19,9 +19,18 @@ import (
 	decositesv1alpha1 "github.com/deco-sites/decofile-operator/api/v1alpha1"
 )
 
-// blocksPrefix is the repo-relative directory whose changes count as a
-// content-only push (a fast-deploy candidate).
-const blocksPrefix = ".deco/blocks/"
+// Content-only definition: a push is a fast-deploy candidate when EVERY changed
+// file matches one of these paths. Studio content commits touch two places —
+// the decofile blocks themselves and the regenerated bundled snapshot it keeps
+// in lockstep for HMR.
+const (
+	// blocksPrefix is the repo-relative directory holding the decofile blocks.
+	blocksPrefix = ".deco/blocks/"
+	// blocksGenFile is the bundled snapshot Studio regenerates alongside a
+	// content commit (used for HMR). It is derived from .deco/blocks, so its
+	// presence in a diff carries no code change.
+	blocksGenFile = "src/server/cms/blocks.gen.json"
+)
 
 // PushEvent is the normalized git push the webhook hands to a DeploymentTarget.
 type PushEvent struct {
@@ -73,19 +82,25 @@ func (r *TargetRegistry) Plan(ctx context.Context, push PushEvent, site SiteConf
 	return t.Plan(ctx, push, site)
 }
 
-// isContentOnly reports whether every changed file is under .deco/blocks/ (a
-// content-only push). An empty file list is treated as not content-only — we
-// can't prove it's content, so we don't fast-deploy it.
+// isContentOnly reports whether every changed file is a content path — under
+// .deco/blocks/ or the regenerated bundled snapshot (blocksGenFile). An empty
+// file list is treated as not content-only — we can't prove it's content, so
+// we don't fast-deploy it.
 func isContentOnly(files []string) bool {
 	if len(files) == 0 {
 		return false
 	}
 	for _, f := range files {
-		if !strings.HasPrefix(f, blocksPrefix) {
+		if !isContentPath(f) {
 			return false
 		}
 	}
 	return true
+}
+
+// isContentPath reports whether a single changed file counts as content.
+func isContentPath(f string) bool {
+	return strings.HasPrefix(f, blocksPrefix) || f == blocksGenFile
 }
 
 // maxNameLen is the Kubernetes object-name ceiling (DNS-1123 label).
