@@ -4,7 +4,7 @@ The operator turns a content-only git push into a Cloudflare KV content update
 ("fast deploy"), with **no** code redeploy. Flow:
 
 ```
-git push (main, content-only: .deco/blocks/** + src/server/cms/blocks.gen.json)
+git push (main, content-only: .deco/blocks/** + .deco/blocks.gen.json)
   → GitHub webhook → operator  POST /webhooks/github   (HMAC-verified)
   → DeploymentTarget (cloudflare-workers) resolves the repo's Deco CR,
     creates/updates a Decofile CR (target: tanstack-kv)
@@ -86,8 +86,10 @@ or non-content changes — or per repo (Settings → Webhooks). Either way:
 
 The operator processes only pushes to the repo's default branch whose changed files
 are **all content paths**: under `.deco/blocks/**` or the regenerated bundled snapshot
-`src/server/cms/blocks.gen.json` (Studio commits both together). Any other changed
-file makes it a code push → normal build path. A `ping` event (sent on setup) returns `200`.
+`.deco/blocks.gen.json` (7.x `@decocms/blocks-cli`) / `src/server/cms/blocks.gen.json`
+(legacy `@decocms/start@6`) — Studio commits the blocks + the snapshot together. Any
+other changed file makes it a code push → normal build path. A `ping` event (sent on
+setup) returns `200`.
 
 ## 4. Verify
 

@@ -26,10 +26,15 @@ import (
 const (
 	// blocksPrefix is the repo-relative directory holding the decofile blocks.
 	blocksPrefix = ".deco/blocks/"
-	// blocksGenFile is the bundled snapshot Studio regenerates alongside a
-	// content commit (used for HMR). It is derived from .deco/blocks, so its
-	// presence in a diff carries no code change.
-	blocksGenFile = "src/server/cms/blocks.gen.json"
+	// blocksGenFile is the bundled snapshot regenerated alongside a content
+	// commit (used for HMR). It is derived from .deco/blocks, so its presence
+	// in a diff carries no code change. 7.x (@decocms/blocks-cli) emits it at
+	// .deco/blocks.gen.json.
+	blocksGenFile = ".deco/blocks.gen.json"
+	// blocksGenFileLegacy is the pre-7.x location (@decocms/start@6, emitted
+	// under src/server/cms/). Kept so sites not yet on the split packages still
+	// fast-deploy content-only commits.
+	blocksGenFileLegacy = "src/server/cms/blocks.gen.json"
 )
 
 // PushEvent is the normalized git push the webhook hands to a DeploymentTarget.
@@ -100,7 +105,7 @@ func isContentOnly(files []string) bool {
 
 // isContentPath reports whether a single changed file counts as content.
 func isContentPath(f string) bool {
-	return strings.HasPrefix(f, blocksPrefix) || f == blocksGenFile
+	return strings.HasPrefix(f, blocksPrefix) || f == blocksGenFile || f == blocksGenFileLegacy
 }
 
 // maxNameLen is the Kubernetes object-name ceiling (DNS-1123 label).
