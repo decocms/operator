@@ -10,16 +10,23 @@ func TestIsContentOnly(t *testing.T) {
 	}{
 		{"empty list is not content", nil, false},
 		{"blocks only", []string{".deco/blocks/pages-home.json"}, true},
-		{"gen snapshot only", []string{"src/server/cms/blocks.gen.json"}, true},
-		{"blocks + gen snapshot (studio commit)", []string{
+		{"gen snapshot only (7.x .deco)", []string{".deco/blocks.gen.json"}, true},
+		{"gen snapshot only (legacy src/server/cms)", []string{"src/server/cms/blocks.gen.json"}, true},
+		{"blocks + gen snapshot (7.x studio commit)", []string{
 			".deco/blocks/pages-home.json",
 			".deco/blocks/loaders-products.json",
+			".deco/blocks.gen.json",
+		}, true},
+		{"blocks + gen snapshot (legacy studio commit)", []string{
+			".deco/blocks/pages-home.json",
 			"src/server/cms/blocks.gen.json",
 		}, true},
 		{"mixed with code", []string{".deco/blocks/pages-home.json", "src/components/Header.tsx"}, false},
 		{"code only", []string{"src/components/Header.tsx"}, false},
 		{"sibling dir does not match prefix", []string{".deco/blocks-old/x.json"}, false},
-		{"other gen files are code", []string{"src/server/cms/sections.gen.ts"}, false},
+		{"legacy sibling gen files are code", []string{"src/server/cms/sections.gen.ts"}, false},
+		{"other .deco gen files are code (7.x)", []string{".deco/sections.gen.ts"}, false},
+		{"other .deco gen files are code (7.x meta)", []string{".deco/meta.gen.json"}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
