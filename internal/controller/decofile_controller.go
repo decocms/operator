@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"encoding/base64"
+	stderrors "errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -307,6 +308,7 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// Notify pods if ConfigMap data changed
 	var podsNotified bool
 	var notificationError string
+	notificationReason := "NotificationFailed"
 
 	if dataChanged {
 		notifyStart := time.Now()
@@ -316,9 +318,14 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		err = notifier.NotifyPodsForDecofile(ctx, decofile.Namespace, deploymentId, timestamp, jsonContent)
 		notifyDuration := time.Since(notifyStart)
 		if err != nil {
-			log.Error(err, "Failed to notify pods", "deploymentId", deploymentId, "duration", notifyDuration)
 			notificationError = err.Error()
 			podsNotified = false
+			if stderrors.Is(err, ErrMissingReloadToken) {
+				notificationReason = "MissingReloadToken"
+				log.Error(err, "Pods are missing DECO_RELEASE_RELOAD_TOKEN; the running revision cannot be hot-reloaded and must be redeployed so the mutating webhook re-injects the token", "deploymentId", deploymentId, "duration", notifyDuration)
+			} else {
+				log.Error(err, "Failed to notify pods", "deploymentId", deploymentId, "duration", notifyDuration)
+			}
 			// Don't return error - update status with failure condition
 		} else {
 			log.Info("Successfully notified all pods", "timestamp", timestamp, "deploymentId", deploymentId, "duration", notifyDuration)
@@ -376,11 +383,15 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				LastTransitionTime: metav1.Now(),
 			}
 		} else {
+			failMessage := fmt.Sprintf("Failed to notify pods for %s: %s", updateIdentifier, notificationError)
+			if notificationReason == "MissingReloadToken" {
+				failMessage = fmt.Sprintf("Pods for %s are missing DECO_RELEASE_RELOAD_TOKEN, so the fail-closed /.decofile/reload endpoint returns 401. Redeploy the site to create a revision with the token injected: %s", updateIdentifier, notificationError)
+			}
 			podsNotifiedCondition = metav1.Condition{
 				Type:               condTypePodsNotified,
 				Status:             metav1.ConditionFalse,
-				Reason:             "NotificationFailed",
-				Message:            fmt.Sprintf("Failed to notify pods for %s: %s", updateIdentifier, notificationError),
+				Reason:             notificationReason,
+				Message:            failMessage,
 				LastTransitionTime: metav1.Now(),
 			}
 		}
@@ -427,15 +438,15 @@ func updateCondition(decofile *decositesv1alpha1.Decofile, newCondition metav1.C
 
 // syncRevisionOwnerRefs ensures the Decofile carries an ownerReference for
 // every Knative Revision in the same namespace that targets it (matched via
-// the app.deco/deploymentId label). When the Revision is later deleted —
+// the app.deco/deploymentId label). When the Revision is later deleted --
 // either by Knative GC (maxNonActiveRevisions) or by the knative-clean-*
-// CronJobs — Kubernetes garbage collection cascades through Revision ->
+// CronJobs -- Kubernetes garbage collection cascades through Revision ->
 // Decofile -> ConfigMap, so we never accumulate orphaned configuration.
 //
 // Multiple matching Revisions (e.g. during a rollback that reuses a
 // deploymentId) all become owners; the Decofile is only GC'd once every
 // owner Revision is gone. Stale UIDs are cleaned by Kubernetes GC on its
-// own — we never remove ownerReferences here.
+// own -- we never remove ownerReferences here.
 func (r *DecofileReconciler) syncRevisionOwnerRefs(ctx context.Context, decofile *decositesv1alpha1.Decofile) error {
 	log := logf.FromContext(ctx)
 
@@ -548,7 +559,7 @@ func (r *DecofileReconciler) mapRevisionToDecofile(ctx context.Context, obj clie
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *DecofileReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	// Only react to Revision Create — Updates and Deletes don't add new
+	// Only react to Revision Create -- Updates and Deletes don't add new
 	// ownerRef linkage information (Kubernetes GC already handles deletes
 	// via existing ownerReferences). Skipping them keeps the controller
 	// from spinning on Status churn of running Revisions.
