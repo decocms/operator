@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -46,6 +47,16 @@ const (
 	maxIdleConnsPerHost = 10
 	idleConnTimeout     = 90 * time.Second
 )
+
+// ErrMissingReloadToken indicates that a target pod had no
+// DECO_RELEASE_RELOAD_TOKEN env var set. Against a fail-closed
+// /.decofile/reload endpoint (deco-cx/deco 51af3349) the operator's
+// notification is rejected with 401 (and the connection may be closed
+// mid-body, surfacing as a write/broken-pipe error). Such a revision cannot
+// be hot-reloaded: it must be redeployed so the mutating webhook injects the
+// token into a fresh revision. Wrapped into the aggregate notification error
+// so callers can branch on it via errors.Is.
+var ErrMissingReloadToken = errors.New("target pod is missing DECO_RELEASE_RELOAD_TOKEN")
 
 // NewHTTPClient creates a shared HTTP client with proper connection pooling configuration.
 // This client should be reused across all reconciliations to prevent memory leaks.
@@ -186,6 +197,7 @@ func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, deploym
 	successCount := 0
 	failCount := 0
 	skippedCount := 0
+	missingToken := false
 
 	for i := 0; i < len(podNames); i++ {
 		select {
@@ -196,6 +208,9 @@ func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, deploym
 					log.V(1).Info("Pod no longer exists", "pod", result.podName)
 				} else {
 					failCount++
+					if errors.Is(result.err, ErrMissingReloadToken) {
+						missingToken = true
+					}
 					allErrors = append(allErrors, fmt.Sprintf("%s: %v", result.podName, result.err))
 					log.Error(result.err, "Failed to notify pod", "pod", result.podName)
 				}
@@ -211,6 +226,9 @@ func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, deploym
 	log.Info("Notification summary", "success", successCount, "failed", failCount, "skipped", skippedCount, "total", len(podNames))
 
 	if len(allErrors) > 0 {
+		if missingToken {
+			return fmt.Errorf("%w: failed to notify %d pod(s): %s", ErrMissingReloadToken, failCount, strings.Join(allErrors, "; "))
+		}
 		return fmt.Errorf("failed to notify %d pod(s): %s", failCount, strings.Join(allErrors, "; "))
 	}
 
@@ -270,6 +288,13 @@ func (n *Notifier) notifyPodWithRetry(ctx context.Context, pod *corev1.Pod, time
 
 		// If this was the last attempt, return the error
 		if attempt == maxRetries {
+			if token == "" {
+				// No token in the pod env: a fail-closed /.decofile/reload rejects
+				// with 401 (and may close the connection mid-body, surfacing as a
+				// write/broken-pipe error). Either way the pod cannot be reloaded
+				// until it is redeployed with the token injected.
+				return fmt.Errorf("%w: max retries reached: %v", ErrMissingReloadToken, err)
+			}
 			return fmt.Errorf("max retries reached: %w", err)
 		}
 
