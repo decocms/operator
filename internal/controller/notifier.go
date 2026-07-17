@@ -48,14 +48,17 @@ const (
 	idleConnTimeout     = 90 * time.Second
 )
 
-// ErrMissingReloadToken indicates that a target pod had no
-// DECO_RELEASE_RELOAD_TOKEN env var set. Against a fail-closed
-// /.decofile/reload endpoint (deco-cx/deco 51af3349) the operator's
-// notification is rejected with 401 (and the connection may be closed
-// mid-body, surfacing as a write/broken-pipe error). Such a revision cannot
-// be hot-reloaded: it must be redeployed so the mutating webhook injects the
-// token into a fresh revision. Wrapped into the aggregate notification error
-// so callers can branch on it via errors.Is.
+// ErrMissingReloadToken indicates that the operator had no reload token to
+// send for a target pod (no DECO_RELEASE_RELOAD_TOKEN in its env) AND the pod
+// actually answered 401 -- i.e. a fail-closed /.decofile/reload endpoint
+// (deco-cx/deco 51af3349) rejected the unauthenticated request. Such a
+// revision cannot be hot-reloaded and must be redeployed so the mutating
+// webhook injects the token into a fresh revision.
+//
+// Deliberately narrow: a 401 with a token present (token rejected) or a
+// non-401 failure (5xx, connection reset / broken pipe) is NOT classified as
+// this -- a 401 has other possible causes. Wrapped into the batch aggregate
+// error so callers can branch on it via errors.Is.
 var ErrMissingReloadToken = errors.New("target pod is missing DECO_RELEASE_RELOAD_TOKEN")
 
 // NewHTTPClient creates a shared HTTP client with proper connection pooling configuration.
@@ -255,6 +258,7 @@ func (n *Notifier) notifyPodWithRetry(ctx context.Context, pod *corev1.Pod, time
 	}
 
 	backoff := initialBackoff
+	lastStatusCode := 0
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		log.V(1).Info("Attempting to notify pod", "pod", pod.Name, "attempt", attempt, "timestamp", timestamp)
@@ -274,6 +278,7 @@ func (n *Notifier) notifyPodWithRetry(ctx context.Context, pod *corev1.Pod, time
 		if err == nil {
 			// Read status code before closing body
 			statusCode := resp.StatusCode
+			lastStatusCode = statusCode
 			// Close body immediately - do NOT use defer inside loop to avoid connection leak
 			if closeErr := resp.Body.Close(); closeErr != nil {
 				log.Error(closeErr, "Failed to close response body", "pod", pod.Name)
@@ -288,11 +293,15 @@ func (n *Notifier) notifyPodWithRetry(ctx context.Context, pod *corev1.Pod, time
 
 		// If this was the last attempt, return the error
 		if attempt == maxRetries {
-			if token == "" {
-				// No token in the pod env: a fail-closed /.decofile/reload rejects
-				// with 401 (and may close the connection mid-body, surfacing as a
-				// write/broken-pipe error). Either way the pod cannot be reloaded
-				// until it is redeployed with the token injected.
+			// Only attribute the failure to a missing token when we have hard
+			// evidence: the operator sent no Authorization header (no token in the
+			// pod env) AND the pod actually answered 401 -- i.e. a fail-closed
+			// /.decofile/reload rejected the unauthenticated request. A 401 has
+			// other possible causes (e.g. a token that IS present but rejected, or
+			// an upstream block), and non-401 failures (5xx, connection reset /
+			// broken pipe) are not necessarily token-related -- leave those as
+			// generic failures.
+			if token == "" && lastStatusCode == http.StatusUnauthorized {
 				return fmt.Errorf("%w: max retries reached: %v", ErrMissingReloadToken, err)
 			}
 			return fmt.Errorf("max retries reached: %w", err)
