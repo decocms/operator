@@ -265,12 +265,21 @@ func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object
 		return err
 	}
 
-	// Find matching Decofile (non-blocking - allow Service creation even if not found)
+	// Find matching Decofile. Intentionally non-blocking: the Decofile CRD may
+	// not have propagated yet (e.g. cross-cluster fanout), and rejecting the
+	// Service here would break otherwise-valid deploys.
+	//
+	// Trade-off: a Service admitted on this path boots WITHOUT
+	// DECO_RELEASE_RELOAD_TOKEN. On a fail-closed runtime its POST
+	// /.decofile/reload returns 401 for every operator notification until a
+	// later revision injects the token -- an un-reloadable revision whose
+	// failure only surfaces on the next block-only publish. Log it loudly so it
+	// is diagnosable instead of silently created.
 	decofile, err := d.findDecofileByDeploymentId(ctx, service.Namespace, deploymentId)
 	if err != nil {
-		servicelog.Info("Decofile not found, skipping injection (Service will be created without Decofile)",
-			"service", service.Name, "deploymentId", deploymentId, "reason", err.Error())
-		return nil // Allow Service creation
+		servicelog.Info("WARNING: decofile-inject requested but no matching Decofile found; Service will be created WITHOUT a reload token and cannot be hot-reloaded (POST /.decofile/reload will 401) until redeployed with the token injected",
+			"service", service.Name, "namespace", service.Namespace, "deploymentId", deploymentId, "reason", err.Error())
+		return nil // Allow Service creation (non-blocking)
 	}
 
 	// Get mount path from annotation or use default directory

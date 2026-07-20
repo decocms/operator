@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -46,6 +47,19 @@ const (
 	maxIdleConnsPerHost = 10
 	idleConnTimeout     = 90 * time.Second
 )
+
+// ErrMissingReloadToken indicates that the operator had no reload token to
+// send for a target pod (no DECO_RELEASE_RELOAD_TOKEN in its env) AND the pod
+// actually answered 401 -- i.e. a fail-closed /.decofile/reload endpoint
+// (deco-cx/deco 51af3349) rejected the unauthenticated request. Such a
+// revision cannot be hot-reloaded and must be redeployed so the mutating
+// webhook injects the token into a fresh revision.
+//
+// Deliberately narrow: a 401 with a token present (token rejected) or a
+// non-401 failure (5xx, connection reset / broken pipe) is NOT classified as
+// this -- a 401 has other possible causes. Wrapped into the batch aggregate
+// error so callers can branch on it via errors.Is.
+var ErrMissingReloadToken = errors.New("target pod is missing DECO_RELEASE_RELOAD_TOKEN")
 
 // NewHTTPClient creates a shared HTTP client with proper connection pooling configuration.
 // This client should be reused across all reconciliations to prevent memory leaks.
@@ -186,6 +200,7 @@ func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, deploym
 	successCount := 0
 	failCount := 0
 	skippedCount := 0
+	missingToken := false
 
 	for i := 0; i < len(podNames); i++ {
 		select {
@@ -196,6 +211,9 @@ func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, deploym
 					log.V(1).Info("Pod no longer exists", "pod", result.podName)
 				} else {
 					failCount++
+					if errors.Is(result.err, ErrMissingReloadToken) {
+						missingToken = true
+					}
 					allErrors = append(allErrors, fmt.Sprintf("%s: %v", result.podName, result.err))
 					log.Error(result.err, "Failed to notify pod", "pod", result.podName)
 				}
@@ -211,6 +229,9 @@ func (n *Notifier) NotifyPodsForDecofile(ctx context.Context, namespace, deploym
 	log.Info("Notification summary", "success", successCount, "failed", failCount, "skipped", skippedCount, "total", len(podNames))
 
 	if len(allErrors) > 0 {
+		if missingToken {
+			return fmt.Errorf("%w: failed to notify %d pod(s): %s", ErrMissingReloadToken, failCount, strings.Join(allErrors, "; "))
+		}
 		return fmt.Errorf("failed to notify %d pod(s): %s", failCount, strings.Join(allErrors, "; "))
 	}
 
@@ -237,6 +258,7 @@ func (n *Notifier) notifyPodWithRetry(ctx context.Context, pod *corev1.Pod, time
 	}
 
 	backoff := initialBackoff
+	lastStatusCode := 0
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		log.V(1).Info("Attempting to notify pod", "pod", pod.Name, "attempt", attempt, "timestamp", timestamp)
@@ -256,6 +278,7 @@ func (n *Notifier) notifyPodWithRetry(ctx context.Context, pod *corev1.Pod, time
 		if err == nil {
 			// Read status code before closing body
 			statusCode := resp.StatusCode
+			lastStatusCode = statusCode
 			// Close body immediately - do NOT use defer inside loop to avoid connection leak
 			if closeErr := resp.Body.Close(); closeErr != nil {
 				log.Error(closeErr, "Failed to close response body", "pod", pod.Name)
@@ -270,6 +293,17 @@ func (n *Notifier) notifyPodWithRetry(ctx context.Context, pod *corev1.Pod, time
 
 		// If this was the last attempt, return the error
 		if attempt == maxRetries {
+			// Only attribute the failure to a missing token when we have hard
+			// evidence: the operator sent no Authorization header (no token in the
+			// pod env) AND the pod actually answered 401 -- i.e. a fail-closed
+			// /.decofile/reload rejected the unauthenticated request. A 401 has
+			// other possible causes (e.g. a token that IS present but rejected, or
+			// an upstream block), and non-401 failures (5xx, connection reset /
+			// broken pipe) are not necessarily token-related -- leave those as
+			// generic failures.
+			if token == "" && lastStatusCode == http.StatusUnauthorized {
+				return fmt.Errorf("%w: max retries reached: %v", ErrMissingReloadToken, err)
+			}
 			return fmt.Errorf("max retries reached: %w", err)
 		}
 
