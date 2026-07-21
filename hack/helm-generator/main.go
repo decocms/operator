@@ -224,7 +224,7 @@ func addEnvVarsToDeployment(templatesDir string) error {
 	contentStr := string(content)
 
 	// Find the image line and add env vars after it
-	envBlock := `        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret .Values.cfworkers.builderImage .Values.cfworkers.artifactsBucket .Values.s3.region .Values.s3.logsBucket .Values.s3.stateBucket .Values.build.serviceAccount .Values.build.roleArn .Values.build.nodeSelector .Values.build.tolerations (and .Values.fastDeploy .Values.fastDeploy.syncerImage) }}
+	envBlock := `        {{- if or (and .Values.github (or .Values.github.token .Values.github.existingSecret)) (and .Values.valkey (get .Values.valkey "sentinelUrls")) .Values.cfworkers.existingSecret .Values.cfworkers.builderImage .Values.cfworkers.artifactsBucket .Values.s3.region .Values.s3.logsBucket .Values.s3.stateBucket .Values.build.serviceAccount .Values.build.roleArn .Values.build.nodeSelector .Values.build.tolerations (and .Values.fastDeploy .Values.fastDeploy.syncerImage) (and .Values.decofileS3 .Values.decofileS3.bucket) }}
         env:
         {{- if and .Values.github .Values.github.existingSecret }}
         - name: GITHUB_TOKEN
@@ -311,6 +311,16 @@ func addEnvVarsToDeployment(templatesDir string) error {
         {{- if and .Values.fastDeploy .Values.fastDeploy.syncerImage }}
         - name: DECOFILE_SYNCER_IMAGE
           value: {{ .Values.fastDeploy.syncerImage | quote }}
+        {{- end }}
+        {{- if and .Values.decofileS3 .Values.decofileS3.bucket }}
+        - name: DECOFILE_S3_BUCKET
+          value: {{ .Values.decofileS3.bucket | quote }}
+        - name: DECOFILE_S3_REGION
+          value: {{ .Values.decofileS3.region | quote }}
+        - name: DECOFILE_S3_PUBLIC_HOST
+          value: {{ .Values.decofileS3.publicHost | quote }}
+        - name: DECOFILE_S3_PREFIX
+          value: {{ .Values.decofileS3.prefix | quote }}
         {{- end }}
         {{- end }}`
 

@@ -116,6 +116,19 @@ s3:
   logsBucket: ""        # S3 bucket for build logs
   stateBucket: ""       # S3 bucket for site state
 
+# Decofile S3 delivery (target=s3): serves the decofile to pods over HTTP from
+# S3 instead of a ConfigMap, escaping the ~1MB etcd ConfigMap limit. Inert
+# unless `bucket` is set. The controller writes to S3 with credentials from its
+# EKS Pod Identity association (same mechanism as the build buckets) — that
+# role needs s3:PutObject on the bucket. `publicHost` is the runtime-facing host
+# (a CloudFront/VPC-restricted domain fronting the private bucket — the decofile
+# can contain secrets, so the bucket must NOT be public-read).
+decofileS3:
+  bucket: ""        # S3 bucket name (required to enable)
+  region: ""        # bucket region (co-locate with the EKS cluster)
+  publicHost: ""    # host for DECO_RELEASE URL, e.g. configs.decocdn.com
+  prefix: ""        # optional key prefix, e.g. "decofiles"
+
 # Build job config — shared across all build platforms
 build:
   serviceAccount: ""    # K8s ServiceAccount for builder pods (IRSA)

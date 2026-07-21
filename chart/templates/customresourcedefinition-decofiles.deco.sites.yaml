@@ -114,9 +114,12 @@ spec:
                   "configmap" (default) writes a ConfigMap and notifies Knative pods.
                   "tanstack-kv" runs a self-cleaning Job that pushes the decofile to Cloudflare
                   KV — the fast-deploy content path for TanStack/Workers sites.
+                  "s3" uploads the decofile to S3 and serves it over HTTP (no ConfigMap) —
+                  the path for content-heavy sites that would exceed the etcd ConfigMap limit.
                 enum:
                 - configmap
                 - tanstack-kv
+                - s3
                 type: string
             required:
             - source
@@ -191,6 +194,11 @@ spec:
                 description: ConfigMapName is the name of the ConfigMap created for
                   this Decofile
                 type: string
+              contentHash:
+                description: |-
+                  ContentHash is the SHA-256 of the last delivered decofile JSON. Used by the
+                  s3 target to skip re-upload/notify when content is unchanged.
+                type: string
               githubCommit:
                 description: GitHubCommit stores the commit SHA if using GitHub source
                 type: string
@@ -201,6 +209,9 @@ spec:
               lastUpdated:
                 description: LastUpdated is the timestamp of the last update
                 format: date-time
+                type: string
+              s3URL:
+                description: S3URL is the HTTP URL the runtime reads from when target=s3.
                 type: string
               sourceType:
                 description: SourceType indicates which source was used (inline or
