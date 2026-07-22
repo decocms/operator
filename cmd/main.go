@@ -381,9 +381,12 @@ func main() {
 
 	if enabled(controller.DecoControllerName) {
 		registry := build.NewBuilderRegistry()
-		registry.Register("cloudflare-worker", build.NewCloudflareFactory(build.CfWorkersConfigFromEnv()))
-		// knative: Node/TanStack build → dist tar in S3, served by the generic node-runner.
-		registry.Register("knative", build.NewKnativeFactory(build.KnativeConfigFromEnv()))
+		// cloudflare-worker: framework-agnostic (hosting = CF Workers).
+		registry.Register("cloudflare-worker", "", build.NewCloudflareFactory(build.CfWorkersConfigFromEnv()))
+		// knative + tanstack: Node build → dist tar in S3, served by the node-runner.
+		// (knative is the hosting framework; tanstack is the stack framework — a
+		// future knative+deno builder registers under ("knative","deno").)
+		registry.Register("knative", "tanstack", build.NewKnativeFactory(build.KnativeConfigFromEnv()))
 		builderSAAnnotations := map[string]string{}
 		if roleArn := os.Getenv("BUILD_ROLE_ARN"); roleArn != "" {
 			builderSAAnnotations["eks.amazonaws.com/role-arn"] = roleArn

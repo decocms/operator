@@ -20,7 +20,10 @@ import (
 // Knative Service. Everything site-specific comes from the Deco CR (self-contained
 // CR invariant); this is only the platform-level defaults.
 type KnativeServingConfig struct {
-	RunnerImage    string // generic node-runner image (one for all sites)
+	// RunnerImages maps a stack framework (spec.framework, e.g. "tanstack") to
+	// its generic runner image. knative is the hosting framework; the stack
+	// framework picks the runtime (tanstack → node-runner; deno → the deno runner).
+	RunnerImages   map[string]string
 	AssetsBucket   string // S3 bucket holding the dist artifact
 	S3Region       string
 	ServiceAccount string // SA with IRSA for S3 read (empty = default)
@@ -41,7 +44,10 @@ func KnativeServingConfigFromEnv() KnativeServingConfig {
 		return d
 	}
 	return KnativeServingConfig{
-		RunnerImage:    os.Getenv("NODE_RUNNER_IMAGE"),
+		RunnerImages: map[string]string{
+			// tanstack → the Node runner (node-runner image).
+			"tanstack": os.Getenv("NODE_RUNNER_IMAGE"),
+		},
 		AssetsBucket:   os.Getenv("S3_ARTIFACTS_BUCKET"),
 		S3Region:       os.Getenv("S3_REGION"),
 		ServiceAccount: os.Getenv("RUNNER_SERVICE_ACCOUNT"),
@@ -98,10 +104,14 @@ func BuildKnativeService(deco *decositesv1alpha1.Deco, cfg KnativeServingConfig)
 		}
 	}
 
+	// Runner image is selected by the stack framework (knative hosts many stacks).
+	runnerImage := cfg.RunnerImages[deco.Spec.Framework]
+
 	labels := map[string]string{
-		"app.deco/site":    site,
-		"app.deco/org":     org,
-		"app.deco/serving": "knative",
+		"app.deco/site":      site,
+		"app.deco/org":       org,
+		"app.deco/serving":   "knative",
+		"app.deco/framework": deco.Spec.Framework,
 	}
 
 	return &servingv1.Service{
@@ -127,7 +137,7 @@ func BuildKnativeService(deco *decositesv1alpha1.Deco, cfg KnativeServingConfig)
 							Containers: []corev1.Container{
 								{
 									Name:  "app",
-									Image: cfg.RunnerImage,
+									Image: runnerImage,
 									Ports: []corev1.ContainerPort{{Name: "http1", ContainerPort: port}},
 									Env:   env,
 								},
@@ -151,8 +161,8 @@ func (r *DecoReconciler) ensureKnativeService(ctx context.Context, deco *decosit
 	if deco.Spec.Build == nil || deco.Spec.Build.Source.CommitSha == "" {
 		return nil
 	}
-	if r.KnativeServing.RunnerImage == "" {
-		return fmt.Errorf("knative serving: NODE_RUNNER_IMAGE is not configured")
+	if r.KnativeServing.RunnerImages[deco.Spec.Framework] == "" {
+		return fmt.Errorf("knative serving: no runner image configured for framework %q", deco.Spec.Framework)
 	}
 
 	desired := BuildKnativeService(deco, r.KnativeServing)

@@ -20,23 +20,25 @@ func (s *stubBuilder) NewJob(_ context.Context, _ *decositesv1alpha1.Deco, _ str
 	return s.job, nil
 }
 
-func testDeco(servingType string) *decositesv1alpha1.Deco {
+func testDeco(servingType, framework string) *decositesv1alpha1.Deco {
 	return &decositesv1alpha1.Deco{
 		ObjectMeta: metav1.ObjectMeta{Name: "site", Namespace: "default"},
 		Spec: decositesv1alpha1.DecoSpec{
-			Site:    "site",
-			Org:     "org",
-			Serving: &decositesv1alpha1.DecoSpecServing{Type: servingType},
+			Site:      "site",
+			Org:       "org",
+			Framework: framework,
+			Serving:   &decositesv1alpha1.DecoSpecServing{Type: servingType},
 		},
 	}
 }
 
-func TestRegistry_DispatchesToRegisteredBuilder(t *testing.T) {
+func TestRegistry_DispatchesToAgnosticBuilder(t *testing.T) {
 	want := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "build-abc"}}
 	r := NewBuilderRegistry()
-	r.Register("cloudflare-worker", &stubBuilder{job: want})
+	r.Register("cloudflare-worker", "", &stubBuilder{job: want})
 
-	got, err := r.NewJob(context.Background(), testDeco("cloudflare-worker"), "build-abc", decositesv1alpha1.DecoSpecBuildSource{CommitSha: "abc"})
+	// framework-agnostic: matches regardless of spec.framework
+	got, err := r.NewJob(context.Background(), testDeco("cloudflare-worker", "tanstack"), "build-abc", decositesv1alpha1.DecoSpecBuildSource{CommitSha: "abc"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -45,9 +47,29 @@ func TestRegistry_DispatchesToRegisteredBuilder(t *testing.T) {
 	}
 }
 
+func TestRegistry_DispatchesToStackSpecificBuilder(t *testing.T) {
+	tanstack := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "knative-tanstack"}}
+	r := NewBuilderRegistry()
+	r.Register("knative", "tanstack", &stubBuilder{job: tanstack})
+
+	// knative + tanstack → the stack-specific builder
+	got, err := r.NewJob(context.Background(), testDeco("knative", "tanstack"), "job", decositesv1alpha1.DecoSpecBuildSource{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != tanstack {
+		t.Errorf("expected knative/tanstack builder, got %p", got)
+	}
+
+	// knative + deno → no builder registered for that stack → error
+	if _, err := r.NewJob(context.Background(), testDeco("knative", "deno"), "job", decositesv1alpha1.DecoSpecBuildSource{}); err == nil {
+		t.Fatal("expected error for knative+deno (no builder registered)")
+	}
+}
+
 func TestRegistry_ErrorsOnUnknownServingType(t *testing.T) {
 	r := NewBuilderRegistry()
-	_, err := r.NewJob(context.Background(), testDeco("unknown"), "job", decositesv1alpha1.DecoSpecBuildSource{})
+	_, err := r.NewJob(context.Background(), testDeco("unknown", ""), "job", decositesv1alpha1.DecoSpecBuildSource{})
 	if err == nil {
 		t.Fatal("expected error for unregistered serving type")
 	}
