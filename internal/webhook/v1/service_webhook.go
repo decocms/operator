@@ -204,7 +204,7 @@ func mergeAllowedAuthorities(existing string, exists bool, host string) (value s
 // DECO_ALLOWED_AUTHORITIES env var, preserving any existing entries (or the
 // runtime defaults when the var is unset).
 func (d *ServiceCustomDefaulter) ensureAllowedAuthority(service *servingknativedevv1.Service, containerIdx int, host string) {
-	container := &service.Spec.Template.Spec.PodSpec.Containers[containerIdx]
+	container := &service.Spec.Template.Spec.Containers[containerIdx]
 
 	existingIdx := -1
 	var existing string
