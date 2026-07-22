@@ -393,6 +393,7 @@ func main() {
 			Scheme:               mgr.GetScheme(),
 			Builder:              registry,
 			BuilderSAAnnotations: builderSAAnnotations,
+			KnativeServing:       controller.KnativeServingConfigFromEnv(),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Deco")
 			os.Exit(1)

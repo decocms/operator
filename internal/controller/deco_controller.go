@@ -34,6 +34,9 @@ type DecoReconciler struct {
 	Scheme               *runtime.Scheme
 	Builder              build.Builder
 	BuilderSAAnnotations map[string]string
+	// KnativeServing configures the generic node-runner Knative Service created
+	// for spec.serving.type=knative sites. Zero value disables Service creation.
+	KnativeServing KnativeServingConfig
 }
 
 // +kubebuilder:rbac:groups=deco.sites,resources=decos,verbs=get;list;watch;create;update;patch;delete
@@ -41,6 +44,7 @@ type DecoReconciler struct {
 // +kubebuilder:rbac:groups=deco.sites,resources=decos/finalizers,verbs=update
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update
+// +kubebuilder:rbac:groups=serving.knative.dev,resources=services,verbs=get;list;watch;create;update;patch
 
 func (r *DecoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
@@ -86,7 +90,9 @@ func (r *DecoReconciler) reconcileProductionBuild(ctx context.Context, log logr.
 	commitSha := deco.Spec.Build.Source.CommitSha
 
 	if deco.Status.Build != nil && deco.Status.Build.LastBuiltCommit == commitSha {
-		return false, nil
+		// Already built — ensure the Knative Service exists (self-healing, no-op
+		// for non-knative serving types).
+		return false, r.ensureKnativeService(ctx, deco)
 	}
 
 	jobName := build.JobName(commitSha, deco.Spec.Site)
@@ -138,6 +144,10 @@ func (r *DecoReconciler) reconcileProductionBuild(ctx context.Context, log logr.
 	}
 	if phase == phaseSucceeded {
 		patch.Status.Build.LastBuiltCommit = commitSha
+		// Build done → create/update the Knative Service (no-op for non-knative).
+		if err := r.ensureKnativeService(ctx, deco); err != nil {
+			return false, err
+		}
 	}
 	return true, nil
 }
