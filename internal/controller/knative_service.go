@@ -26,14 +26,26 @@ type KnativeServingConfig struct {
 	RunnerImages   map[string]string
 	AssetsBucket   string // S3 bucket holding the dist artifact
 	S3Region       string
-	ServiceAccount string // SA with IRSA for S3 read (empty = default)
-	EnvName        string // DECO_ENV_NAME (default "production")
-	MinScale       int    // 0 = scale-to-zero standby
-	MaxScale       int
-	AppPort        int32 // container port (default 8000)
+	ServiceAccount string // runner SA name, bound (IRSA) to a read-only S3 role
+	// SAAnnotations is applied to the runner ServiceAccount (e.g. the IRSA
+	// eks.amazonaws.com/role-arn). The operator ensures the SA exists + annotated
+	// in the site namespace so aws-cli in the runner picks up the web-identity token.
+	SAAnnotations map[string]string
+	EnvName       string // DECO_ENV_NAME (default "production")
+	MinScale      int    // 0 = scale-to-zero standby
+	MaxScale      int
+	AppPort       int32 // container port (default 8000)
 }
 
 const knativeAppPort int32 = 8000
+
+// roleARNAnnotation builds the IRSA annotation map for a runner ServiceAccount.
+func roleARNAnnotation(roleARN string) map[string]string {
+	if roleARN == "" {
+		return nil
+	}
+	return map[string]string{"eks.amazonaws.com/role-arn": roleARN}
+}
 
 // KnativeServingConfigFromEnv reads the platform Knative serving config from env.
 func KnativeServingConfigFromEnv() KnativeServingConfig {
@@ -51,6 +63,7 @@ func KnativeServingConfigFromEnv() KnativeServingConfig {
 		AssetsBucket:   os.Getenv("S3_ARTIFACTS_BUCKET"),
 		S3Region:       os.Getenv("S3_REGION"),
 		ServiceAccount: os.Getenv("RUNNER_SERVICE_ACCOUNT"),
+		SAAnnotations:  roleARNAnnotation(os.Getenv("RUNNER_ROLE_ARN")),
 		EnvName:        os.Getenv("DECO_ENV_NAME"),
 		MinScale:       atoiOr(os.Getenv("NODE_RUNNER_MIN_SCALE"), 0),
 		MaxScale:       atoiOr(os.Getenv("NODE_RUNNER_MAX_SCALE"), 5),
@@ -93,7 +106,7 @@ func BuildKnativeService(deco *decositesv1alpha1.Deco, cfg KnativeServingConfig)
 		{Name: "DECO_ENV_NAME", Value: envName},
 		{Name: "PORT", Value: strconv.Itoa(int(port))},
 		{Name: "ASSETS_BUCKET", Value: cfg.AssetsBucket},
-		{Name: "ADMIN_S3_REGION", Value: cfg.S3Region},
+		{Name: "AWS_REGION", Value: cfg.S3Region},
 		{Name: "BUILD_HASH", Value: commitSha},
 	}
 	// Site env from the CR (self-contained CR: config lives in the Deco, not
@@ -163,6 +176,14 @@ func (r *DecoReconciler) ensureKnativeService(ctx context.Context, deco *decosit
 	}
 	if r.KnativeServing.RunnerImages[deco.Spec.Framework] == "" {
 		return fmt.Errorf("knative serving: no runner image configured for framework %q", deco.Spec.Framework)
+	}
+
+	// Ensure the runner ServiceAccount exists + is IRSA-annotated in the site
+	// namespace, so aws-cli in the runner picks up the read-only S3 web-identity.
+	if r.KnativeServing.ServiceAccount != "" {
+		if err := ensureServiceAccount(ctx, r.Client, deco.Namespace, r.KnativeServing.ServiceAccount, r.KnativeServing.SAAnnotations); err != nil {
+			return fmt.Errorf("knative serving: ensure runner service account: %w", err)
+		}
 	}
 
 	desired := BuildKnativeService(deco, r.KnativeServing)
