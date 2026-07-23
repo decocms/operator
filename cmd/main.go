@@ -357,11 +357,20 @@ func main() {
 			decositesv1alpha1.TargetTanstackKV,
 			deploy.NewTanstackKV(tkvCfg),
 		)
+		// s3 target: HTTP-delivered decofile for content-heavy sites. Inert
+		// (nil) unless DECOFILE_S3_BUCKET is set.
+		s3Uploader, s3err := controller.NewS3UploaderFromEnv(context.Background())
+		if s3err != nil {
+			setupLog.Error(s3err, "decofile s3 target disabled: invalid DECOFILE_S3_* config")
+		} else if s3Uploader != nil {
+			setupLog.Info("decofile s3 target enabled")
+		}
 		if err = (&controller.DecofileReconciler{
 			Client:     mgr.GetClient(),
 			Scheme:     mgr.GetScheme(),
 			HTTPClient: httpClient,
 			FastDeploy: fastDeployRegistry,
+			S3:         s3Uploader,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Decofile")
 			os.Exit(1)

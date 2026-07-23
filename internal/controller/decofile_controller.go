@@ -64,6 +64,9 @@ type DecofileReconciler struct {
 	// FastDeploy dispatches non-configmap Decofile targets (e.g. tanstack-kv) to
 	// a pluggable FastDeployment strategy. Nil = only the default ConfigMap path.
 	FastDeploy *deploy.DeploymentRegistry
+	// S3 delivers the decofile via S3+HTTP for target=s3 (content-heavy sites
+	// that would exceed the etcd ConfigMap limit). Nil = s3 target unavailable.
+	S3 *S3Uploader
 }
 
 // +kubebuilder:rbac:groups=deco.sites,resources=decofiles,verbs=get;list;watch;create;update;patch;delete
@@ -100,6 +103,13 @@ func (r *DecofileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	log.V(1).Info("Fetched Decofile", "duration", time.Since(fetchStart))
+
+	// s3 target: deliver over HTTP from S3 instead of a ConfigMap (escapes the
+	// etcd ConfigMap limit). Handled inline (not a FastDeployment) because it
+	// reuses this package's source retrieval + pod notifier.
+	if decofile.Spec.Target == decositesv1alpha1.TargetS3 {
+		return r.reconcileS3(ctx, req, decofile)
+	}
 
 	// Pluggable delivery: non-configmap targets (e.g. tanstack-kv KV sync) are
 	// driven by a FastDeployment strategy that owns its own child resources +

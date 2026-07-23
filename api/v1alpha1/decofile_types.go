@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"strings"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
@@ -37,6 +39,11 @@ const (
 	TargetConfigMap = "configmap"
 	// TargetTanstackKV runs a Job that pushes the decofile to Cloudflare KV.
 	TargetTanstackKV = "tanstack-kv"
+	// TargetS3 uploads the merged decofile JSON to S3 and points the runtime at
+	// it over HTTP (DECO_RELEASE=https://…) instead of mounting a ConfigMap.
+	// Escapes the ~1MB etcd ConfigMap ceiling for content-heavy sites. Bucket /
+	// region / public host come from operator env (DECOFILE_S3_*).
+	TargetS3 = "s3"
 )
 
 // DecofileSpec defines the desired state of Decofile.
@@ -65,7 +72,9 @@ type DecofileSpec struct {
 	// "configmap" (default) writes a ConfigMap and notifies Knative pods.
 	// "tanstack-kv" runs a self-cleaning Job that pushes the decofile to Cloudflare
 	// KV — the fast-deploy content path for TanStack/Workers sites.
-	// +kubebuilder:validation:Enum=configmap;tanstack-kv
+	// "s3" uploads the decofile to S3 and serves it over HTTP (no ConfigMap) —
+	// the path for content-heavy sites that would exceed the etcd ConfigMap limit.
+	// +kubebuilder:validation:Enum=configmap;tanstack-kv;s3
 	// +kubebuilder:default=configmap
 	// +optional
 	Target string `json:"target,omitempty"`
@@ -146,6 +155,15 @@ type DecofileStatus struct {
 	// JobName is the K8s Job name for the current tanstack-kv sync (target=tanstack-kv).
 	// +optional
 	JobName string `json:"jobName,omitempty"`
+
+	// ContentHash is the SHA-256 of the last delivered decofile JSON. Used by the
+	// s3 target to skip re-upload/notify when content is unchanged.
+	// +optional
+	ContentHash string `json:"contentHash,omitempty"`
+
+	// S3URL is the HTTP URL the runtime reads from when target=s3.
+	// +optional
+	S3URL string `json:"s3URL,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -163,6 +181,26 @@ type Decofile struct {
 // ConfigMapName returns the deterministic name of the ConfigMap for this Decofile
 func (d *Decofile) ConfigMapName() string {
 	return "decofile-" + d.Name
+}
+
+// DeploymentIdOrName returns spec.deploymentId, defaulting to the object name.
+func (d *Decofile) DeploymentIdOrName() string {
+	if d.Spec.DeploymentId != "" {
+		return d.Spec.DeploymentId
+	}
+	return d.Name
+}
+
+// S3ObjectKey returns the deterministic S3 key for this Decofile's config,
+// derived the same way by the reconciler (upload) and the Service webhook
+// (DECO_RELEASE URL) so neither depends on status. prefix is the operator-wide
+// DECOFILE_S3_PREFIX (may be empty).
+func (d *Decofile) S3ObjectKey(prefix string) string {
+	key := d.Namespace + "/" + d.DeploymentIdOrName() + "/decofile.json"
+	if prefix != "" {
+		return strings.Trim(prefix, "/") + "/" + key
+	}
+	return key
 }
 
 // +kubebuilder:object:root=true

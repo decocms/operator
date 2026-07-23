@@ -19,6 +19,8 @@ package v1
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
@@ -136,6 +138,93 @@ func (d *ServiceCustomDefaulter) injectDecofileVolume(_ context.Context, service
 	d.addOrUpdateEnvVars(service, targetContainerIdx, decoReleaseValue)
 
 	return nil
+}
+
+// defaultAllowedAuthorities mirrors the deco runtime's built-in allowlist
+// (engine/trustedAuthority.ts). Setting DECO_ALLOWED_AUTHORITIES replaces (not
+// appends to) that default, so when we inject an S3/CloudFront host we must
+// re-include the defaults or existing HTTP decofile fetches would break.
+var defaultAllowedAuthorities = []string{
+	"configs.decocdn.com", "configs.deco.cx", "admin.deco.cx", "localhost",
+}
+
+// injectDecofileHTTP points DECO_RELEASE at the S3-backed HTTP URL and ensures
+// the host is in DECO_ALLOWED_AUTHORITIES. No volume/mount is added — the
+// decofile is fetched over HTTP, not read from a mounted ConfigMap. Key + host
+// are derived deterministically (same as the reconciler) so this does not
+// depend on the Decofile having been reconciled yet.
+func (d *ServiceCustomDefaulter) injectDecofileHTTP(service *servingknativedevv1.Service, decofile *decositesv1alpha1.Decofile) error {
+	if len(service.Spec.Template.Spec.Containers) == 0 {
+		return fmt.Errorf("no containers found in Service spec")
+	}
+	host := os.Getenv("DECOFILE_S3_PUBLIC_HOST")
+	if host == "" {
+		return fmt.Errorf("decofile target=s3 but DECOFILE_S3_PUBLIC_HOST is not set on the operator")
+	}
+	key := decofile.S3ObjectKey(os.Getenv("DECOFILE_S3_PREFIX"))
+	url := fmt.Sprintf("https://%s/%s", host, key)
+
+	idx := d.findTargetContainer(service)
+	// Reuses the ConfigMap path's env setter: sets DECO_RELEASE + reload token.
+	d.addOrUpdateEnvVars(service, idx, url)
+	d.ensureAllowedAuthority(service, idx, host)
+	return nil
+}
+
+const allowedAuthoritiesEnv = "DECO_ALLOWED_AUTHORITIES"
+
+// mergeAllowedAuthorities computes the DECO_ALLOWED_AUTHORITIES value needed to
+// let the runtime fetch the decofile from host. exists reports whether the
+// container already sets the env (existing is its value). It returns the value
+// to write and setEnv=false when no write is needed — i.e. the var is unset and
+// host is already one of the runtime's built-in defaults, so the default
+// allowlist already covers it. Pure (no k8s types) so it is unit-testable.
+func mergeAllowedAuthorities(existing string, exists bool, host string) (value string, setEnv bool) {
+	var vals []string
+	if exists {
+		for _, v := range strings.Split(existing, ",") {
+			if v = strings.TrimSpace(v); v != "" {
+				vals = append(vals, v)
+			}
+		}
+	} else {
+		vals = append(vals, defaultAllowedAuthorities...)
+	}
+	for _, v := range vals {
+		if v == host {
+			// Already allowed. Only rewrite if the var already exists (to keep
+			// it); otherwise the runtime default covers it and no env is needed.
+			return existing, exists
+		}
+	}
+	return strings.Join(append(vals, host), ","), true
+}
+
+// ensureAllowedAuthority makes sure host is present in the container's
+// DECO_ALLOWED_AUTHORITIES env var, preserving any existing entries (or the
+// runtime defaults when the var is unset).
+func (d *ServiceCustomDefaulter) ensureAllowedAuthority(service *servingknativedevv1.Service, containerIdx int, host string) {
+	container := &service.Spec.Template.Spec.Containers[containerIdx]
+
+	existingIdx := -1
+	var existing string
+	for i, env := range container.Env {
+		if env.Name == allowedAuthoritiesEnv {
+			existingIdx = i
+			existing = env.Value
+			break
+		}
+	}
+
+	value, setEnv := mergeAllowedAuthorities(existing, existingIdx >= 0, host)
+	if !setEnv {
+		return
+	}
+	if existingIdx >= 0 {
+		container.Env[existingIdx].Value = value
+	} else {
+		container.Env = append(container.Env, corev1.EnvVar{Name: allowedAuthoritiesEnv, Value: value})
+	}
 }
 
 // addOrUpdateVolume adds or updates the decofile volume
@@ -282,15 +371,23 @@ func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object
 		return nil // Allow Service creation (non-blocking)
 	}
 
-	// Get mount path from annotation or use default directory
-	mountDir := "/app/decofile"
-	if customPath, exists := service.Annotations[decofileMountPathAnnot]; exists {
-		mountDir = customPath
-	}
+	// s3 target: point the runtime at the HTTP URL instead of mounting a
+	// ConfigMap volume (the decofile lives in S3, not etcd).
+	if decofile.Spec.Target == decositesv1alpha1.TargetS3 {
+		if err := d.injectDecofileHTTP(service, decofile); err != nil {
+			return err
+		}
+	} else {
+		// Get mount path from annotation or use default directory
+		mountDir := "/app/decofile"
+		if customPath, exists := service.Annotations[decofileMountPathAnnot]; exists {
+			mountDir = customPath
+		}
 
-	// Inject Decofile volume and env vars
-	if err := d.injectDecofileVolume(ctx, service, decofile, mountDir); err != nil {
-		return err
+		// Inject Decofile volume and env vars
+		if err := d.injectDecofileVolume(ctx, service, decofile, mountDir); err != nil {
+			return err
+		}
 	}
 
 	// Explicitly add deploymentId label to pod template for notification
@@ -305,7 +402,7 @@ func (d *ServiceCustomDefaulter) Default(ctx context.Context, obj runtime.Object
 	// falling back to deco's FILE_SYSTEM cache in the meantime.
 	d.addOrUpdateValkeyEnvFrom(service)
 
-	servicelog.Info("Successfully injected Decofile into Service", "service", service.Name, "deploymentId", deploymentId, "configmap", decofile.ConfigMapName())
+	servicelog.Info("Successfully injected Decofile into Service", "service", service.Name, "deploymentId", deploymentId, "target", decofile.Spec.Target)
 
 	return nil
 }

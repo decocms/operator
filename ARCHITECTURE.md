@@ -242,6 +242,101 @@ sequenceDiagram
     end
 ```
 
+## Decofile Delivery: S3 Target (etcd Offload)
+
+Content-heavy sites (many/large blocks — e.g. a blog with full-HTML posts inline)
+can push the merged decofile's brotli+base64 size past the ~1MB etcd ConfigMap
+ceiling, at which point the Kubernetes API server rejects the ConfigMap write and
+the site can no longer publish. `spec.target: "s3"` is an **opt-in, per-site**
+alternative: the operator uploads the decofile to S3 as plain JSON and points
+pods at it over HTTP instead of mounting a ConfigMap. Fully reversible — flip
+`target` back to `configmap` (the default) and the next reconcile reverts.
+
+### Flow 7a: Cold Start (target=s3)
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant K8s as Kubernetes API
+    participant Ctrl as Decofile Controller
+    participant S3 as S3 Bucket
+    participant Webhook as Mutating Webhook
+    participant Pod as Site Pod
+
+    User->>K8s: Create/Update Decofile (spec.target: s3)
+    K8s->>Ctrl: Reconcile Event
+    Ctrl->>Ctrl: Retrieve source (github/inline) → JSON
+    Ctrl->>Ctrl: SHA-256 hash content
+    alt Hash unchanged (& commit unchanged for github)
+        Ctrl->>Ctrl: Skip upload — nothing to do
+    else Hash changed
+        Ctrl->>S3: PutObject (raw JSON, no compression)
+        Ctrl->>K8s: Update Status (ContentHash, S3URL)
+    end
+
+    Note over User,Pod: Separately — Service creation/update
+    User->>K8s: Create Knative Service (deco.sites/decofile-inject)
+    K8s->>Webhook: Intercept CREATE/UPDATE
+    Webhook->>K8s: Get Decofile (target=s3)
+    Webhook->>Webhook: Derive S3 key + URL (same formula as controller —<br/>Decofile.S3ObjectKey(), no dependency on reconcile order)
+    Webhook->>Webhook: Set env DECO_RELEASE=https://host/key<br/>(NO volume/volumeMount injected)
+    Webhook->>Webhook: Merge host into DECO_ALLOWED_AUTHORITIES<br/>(preserves runtime defaults if unset)
+    K8s->>Pod: Create Pod with injected env
+    Pod->>S3: GET https://host/key (plain HTTPS, no AWS auth)
+    S3->>Pod: 200 OK — decofile JSON
+    Pod->>Pod: fetch().then(JSON.parse) — no brotli/base64 decode
+```
+
+### Flow 7b: Hot Reload (target=s3)
+
+Identical to **Flow 4** (Change Notification) — the s3 target reuses
+`NotifyPodsForDecofile` unchanged. The only difference from the ConfigMap path
+is *what* changed (an S3 object, not a ConfigMap) and that the reconciler
+pushes the **uncompressed** JSON in the notify payload (same as it always has —
+`NotifyPodsForDecofile` was never brotli-aware; compression is a ConfigMap-side
+concern only). Pods that implement `/.decofile/reload` don't need to know which
+target delivered their *next* update; only the *initial* fetch path (mounted
+file vs. HTTP GET) differs.
+
+### s3 vs configmap: what changes
+
+| | `configmap` (default) | `s3` |
+|---|---|---|
+| Storage | ConfigMap key `decofile.bin` (brotli+base64) | S3 object (plain JSON) |
+| Size ceiling | ~1MB (etcd) | none (S3 object limit is 5TB) |
+| Cold start | Volume mount, `DECO_RELEASE=file://…` | HTTP env only, `DECO_RELEASE=https://…` |
+| Change detection | ConfigMap data diff | SHA-256 content hash (`Status.ContentHash`) |
+| Hot reload | `NotifyPodsForDecofile` (unchanged) | `NotifyPodsForDecofile` (unchanged) |
+| GC | Owned by Decofile (owner ref) — cascades | **Not GC'd** — a deleted Decofile leaves its S3 object; rely on a bucket lifecycle rule |
+| `DECO_ALLOWED_AUTHORITIES` | untouched | webhook merges the S3/CDN host in, preserving runtime defaults |
+
+### Design decisions
+
+- **No compression.** The runtime's HTTP decofile provider
+  (`deco/engine/decofile/fetcher.ts`) does `fetch() → JSON.parse()` with no
+  brotli/base64 decode — that path only exists for `file://….bin`. Serving
+  compressed bytes would require a runtime change; S3 has no size pressure
+  forcing that trade, so the s3 target serves raw JSON. (`gzip` +
+  `Content-Encoding` — which `fetch` auto-decodes — is a possible future
+  optimization, not required.)
+- **Content-hash gate, not ConfigMap-diff.** There's no "get the existing
+  object and compare" step for S3 (no cheap read-before-write like the
+  ConfigMap `Get`); a SHA-256 of the retrieved JSON, stored in
+  `Status.ContentHash`, decides whether to re-upload and re-notify. For a
+  `github` source this is checked *after* the (cheaper) commit-unchanged
+  short-circuit already used by the configmap path.
+- **Deterministic key derivation shared by both sides.** `Decofile.S3ObjectKey()`
+  is called by both the controller (upload) and the webhook (URL for
+  `DECO_RELEASE`) so the webhook never needs to wait for a reconcile to know
+  where the object will be — same reasoning as `ConfigMapName()` for the
+  existing target.
+- **`DECO_ALLOWED_AUTHORITIES` is additive, not overwritten.** Setting that env
+  var **replaces** the runtime's built-in default list (`configs.decocdn.com`,
+  `configs.deco.cx`, `admin.deco.cx`, `localhost`) rather than appending to it
+  — so the webhook always merges the s3 host into whatever's already on the
+  container (existing value or the defaults), never blindly setting it to just
+  the new host.
+
 ## Key Design Decisions
 
 ### 1. Compression Strategy
