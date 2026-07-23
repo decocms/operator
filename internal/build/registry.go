@@ -17,8 +17,20 @@ type Builder interface {
 	NewJob(ctx context.Context, deco *decositesv1alpha1.Deco, jobName string, source decositesv1alpha1.DecoSpecBuildSource) (*batchv1.Job, error)
 }
 
-// BuilderRegistry dispatches to the correct Builder by spec.serving.type.
-// BuilderRegistry itself satisfies Builder.
+// builderKey composes the two orthogonal dimensions that select a builder:
+// the hosting framework (spec.serving.type, e.g. knative) and the stack
+// framework (spec.framework, e.g. tanstack). The same hosting framework runs
+// different stacks (knative+tanstack vs knative+deno), so dispatch keys on both.
+// An empty framework registers a hosting-framework-agnostic builder (fallback).
+func builderKey(servingType, framework string) string {
+	if framework == "" {
+		return servingType
+	}
+	return servingType + "/" + framework
+}
+
+// BuilderRegistry dispatches to the correct Builder by (spec.serving.type,
+// spec.framework). BuilderRegistry itself satisfies Builder.
 type BuilderRegistry struct {
 	platforms map[string]Builder
 }
@@ -27,14 +39,24 @@ func NewBuilderRegistry() *BuilderRegistry {
 	return &BuilderRegistry{platforms: map[string]Builder{}}
 }
 
-func (r *BuilderRegistry) Register(servingType string, b Builder) {
-	r.platforms[servingType] = b
+// Register a builder for a (servingType, framework) pair. Pass framework="" to
+// register a hosting-framework-agnostic builder (used as fallback when no
+// stack-specific builder matches).
+func (r *BuilderRegistry) Register(servingType, framework string, b Builder) {
+	r.platforms[builderKey(servingType, framework)] = b
 }
 
 func (r *BuilderRegistry) NewJob(ctx context.Context, deco *decositesv1alpha1.Deco, jobName string, source decositesv1alpha1.DecoSpecBuildSource) (*batchv1.Job, error) {
-	b, ok := r.platforms[deco.Spec.Serving.Type]
+	st := deco.Spec.Serving.Type
+	fw := deco.Spec.Framework
+	// Prefer the stack-specific builder (e.g. knative/tanstack); fall back to
+	// the framework-agnostic one (e.g. cloudflare-worker).
+	b, ok := r.platforms[builderKey(st, fw)]
 	if !ok {
-		return nil, fmt.Errorf("%w %q", errNoFactory, deco.Spec.Serving.Type)
+		b, ok = r.platforms[st]
+	}
+	if !ok {
+		return nil, fmt.Errorf("%w %q (framework %q)", errNoFactory, st, fw)
 	}
 	return b.NewJob(ctx, deco, jobName, source)
 }

@@ -125,8 +125,18 @@ rules:
   - serving.knative.dev
   resources:
   - revisions
-  - services
   verbs:
   - get
   - list
+  - watch
+- apiGroups:
+  - serving.knative.dev
+  resources:
+  - services
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
   - watch
